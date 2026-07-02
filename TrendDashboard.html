@@ -368,9 +368,10 @@
     }).map(function(row) { row.targetCPA = targetCPA; return row; });
   }
 
-  // 그래프용: 선택 조건에 맞는 항목들을 하나로 합치지 않고, 항목별로 나눈 시리즈 배열을 만든다.
-  // 보종을 특정했으면 보종별로(매체는 합산), 그렇지 않으면 매체별로(선택된 매체, 또는 전체 매체)
-  // 나눠서 각각의 날짜별 추이를 볼 수 있게 한다.
+  // 그래프용: 필터가 전혀 걸려있지 않으면(매체/보종 모두 "전체") 지금까지처럼 하나로 합친
+  // 총합 선 하나만 보여준다. 매체나 보종 중 하나라도 필터가 걸리면, 그 필터에 해당하는
+  // 항목들을 합치지 않고 각각 별도의 선으로 나눠서 보여준다(보종을 골랐으면 보종별로,
+  // 보종 없이 매체만 골랐으면 매체별로).
   function computeGroupedSeries() {
     var startIdx = getVisibleStartIndex();
     var days = DATA.days.slice(startIdx);
@@ -379,6 +380,7 @@
     var productSet = toSet(productMultiSelect.getSelected());
     var mediaFilterOn = Object.keys(mediaSet).length > 0;
     var productFilterOn = Object.keys(productSet).length > 0;
+    var anyFilterOn = mediaFilterOn || productFilterOn;
 
     var groups = DATA.mediaGroups.filter(function(g) {
       return !mediaFilterOn || mediaSet[g.media];
@@ -399,7 +401,9 @@
       group.items.forEach(function(item) {
         if (productFilterOn && !productSet[item.product]) return;
 
-        var label = productFilterOn ? item.product : group.media;
+        // 필터가 하나도 없으면 전부 "전체"라는 하나의 시리즈로 합치고,
+        // 필터가 있으면 보종 우선(보종별), 없으면 매체별로 나눈다.
+        var label = !anyFilterOn ? '전체' : (productFilterOn ? item.product : group.media);
         var values = seriesFor(label);
 
         item.byDate.slice(startIdx).forEach(function(entry, idx) {
