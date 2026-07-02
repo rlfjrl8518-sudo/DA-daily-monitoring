@@ -327,7 +327,8 @@
       document.getElementById('tableBody').innerHTML =
         '<tr><td colspan="4" class="empty">표시할 최종마감 데이터가 없습니다.</td></tr>';
     } else {
-      renderTable(rows);
+      // 그래프는 시간 순서(과거->최근)를 그대로 쓰고, 표만 최신 날짜가 위로 오도록 뒤집는다.
+      renderTable(rows.slice().reverse());
     }
     drawCharts(rows);
   }
