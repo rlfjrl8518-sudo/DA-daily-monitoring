@@ -20,6 +20,19 @@ function getDetailContentBaseRow_() {
   return TOP_SUMMARY_START_ROW + appliedRows + 2;
 }
 
+// 일회성 정리용: 예전에 있었다가 삭제된 매체/보종 필터 드롭다운의 데이터 확인 규칙이
+// 그 후 여러 번의 행 삽입/삭제를 거치며 시트 곳곳으로 밀려 남아있을 수 있다. 그 잔재 때문에
+// 스크립트가 일반 텍스트/숫자를 쓰려다가 "데이터 확인 규칙 위반" 오류가 날 수 있으므로,
+// DA운영현황 시트 전체에서 데이터 확인 규칙만 한 번에 제거한다. 문제가 재발하면 다시 실행해도 안전하다.
+function clearAllDataValidationsOnDashboard_() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var dashboardSheet = ss.getSheetByName(DASH_SHEET_NAME);
+  var lastRow = Math.max(dashboardSheet.getMaxRows(), 1);
+  var lastCol = Math.max(dashboardSheet.getMaxColumns(), 1);
+  dashboardSheet.getRange(1, 1, lastRow, lastCol).clearDataValidations();
+  Logger.log("DA운영현황 시트 전체의 데이터 확인 규칙을 제거했습니다.");
+}
+
 // DA운영설정 시트의 헤더(예: "조회일", "전일") 밑 2행에 있는 날짜 값을 기준으로,
 // 그 날짜 하나의 블록만 다시 그린다. saveMonitoringSnapshot()/saveMonitoringSnapshot_final()이
 // 로그를 적재한 뒤 어느 날짜를 다시 그려야 하는지는 항상 이 헤더 셀 값이 결정하므로,
@@ -130,7 +143,7 @@ function rebuildRecentDashboard_v2() {
   var lastRowNum = dashboardSheet.getLastRow();
   if (lastRowNum >= startRow) {
     var maxCol = dashboardSheet.getMaxColumns();
-    dashboardSheet.getRange(startRow, 1, lastRowNum - startRow + 1, maxCol).clear();
+    dashboardSheet.getRange(startRow, 1, lastRowNum - startRow + 1, maxCol).clear({ validationsAlso: true });
   }
 
   var row = startRow;
@@ -176,7 +189,7 @@ function upsertDateBlock_(dashboardSheet, dateKey, dayLogs, mediaOrder, activePr
     var existing = activeEntries[existingIdx];
     startRow = existing.startRow;
     var maxCol = dashboardSheet.getMaxColumns();
-    dashboardSheet.getRange(startRow, 1, existing.endRow - startRow + 1, maxCol).clear();
+    dashboardSheet.getRange(startRow, 1, existing.endRow - startRow + 1, maxCol).clear({ validationsAlso: true });
   } else if (activeEntries.length > 0) {
     startRow = activeEntries[activeEntries.length - 1].endRow + 3;
   } else {
@@ -657,7 +670,7 @@ function resizeTopSummaryArea_(dashboardSheet, desiredRows) {
 
   if (desiredRows > 0) {
     var maxCol = Math.max(dashboardSheet.getMaxColumns(), 20);
-    dashboardSheet.getRange(TOP_SUMMARY_START_ROW, 1, desiredRows, maxCol).clear();
+    dashboardSheet.getRange(TOP_SUMMARY_START_ROW, 1, desiredRows, maxCol).clear({ validationsAlso: true });
   }
 }
 
