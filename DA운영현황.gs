@@ -8,23 +8,37 @@ var RECHECK_WINDOW_DAYS = 32; // 재검증 시 다시 그릴 최근 일수 (기�
 // 이 표는 매체/보종 조합 수에 따라 필요한 행 수가 매번 바뀔 수 있는데, 그 아래 날짜별 상세
 // 블록들의 위치가 흔들리면 안 되므로 항상 고정된 TOP_SUMMARY_RESERVED_ROWS행을 예약해두고
 // 그 안에서만 지우고 다시 그린다. 실제 내용이 이 행 수를 넘으면 renderRecentFinalSummary_가
-// 에러를 던지니, 그럴 땐 이 값을 늘리면 된다.
+// 에러를 던지니, 그럴 땐 이 값을 늘리면 된다 (늘린 뒤에는 ensureTopSummaryReservedRows_ 재실행 필요).
 var TOP_SUMMARY_START_ROW = 1;
-var TOP_SUMMARY_RESERVED_ROWS = 100;
+var TOP_SUMMARY_RESERVED_ROWS = 40;
 var TOP_SUMMARY_RECENT_DAYS = 3;
 var DETAIL_CONTENT_BASE_ROW = TOP_SUMMARY_START_ROW + TOP_SUMMARY_RESERVED_ROWS + 2; // 요약표 다음 빈 줄 2개 후 시작
-var TOP_SUMMARY_MIGRATION_FLAG_KEY = "DA_TOP_SUMMARY_MIGRATED";
+var TOP_SUMMARY_MIGRATION_FLAG_KEY = "DA_TOP_SUMMARY_MIGRATED"; // 구버전(고정 100행) 호환용, 읽기 전용
+var TOP_SUMMARY_APPLIED_ROWS_KEY = "DA_TOP_SUMMARY_APPLIED_ROWS";
 
-// 일회성 마이그레이션: 상단 요약표 기능을 처음 도입할 때 딱 한 번만 실행한다.
-// 이미 1행부터 쌓여있던 기존 날짜 블록(아카이브+활성 구간) 전체를 DETAIL_CONTENT_BASE_ROW-1행만큼
-// 아래로 밀어내고(insertRowsBefore, 기존 내용은 그대로 유지됨), 블록 상태의 시작/끝 행 번호도
-// 같이 보정한다. 실행 전에 스프레드시트 사본을 만들어두는 걸 권장한다.
-// 이미 실행된 적이 있으면(문서 속성에 완료 표시가 있으면) 아무 것도 하지 않고 넘어간다.
-function migrateAddTopSummaryReservedRows_() {
+// TOP_SUMMARY_RESERVED_ROWS 값이 바뀔 때마다(처음 도입 시 0->N, 이후 N->M 조정 시 모두) 실행해서
+// 실제 시트에 반영한다. "지금까지 실제로 반영된 예약 행 수(applied)"를 문서 속성에 기억해뒀다가,
+// 코드의 TOP_SUMMARY_RESERVED_ROWS와 다르면 그 차이만큼 날짜별 상세 블록 전체를
+// insertRowsBefore/deleteRows로 밀거나 당기고, 블록 상태의 시작/끝 행 번호도 같이 보정한다.
+// 실행 전에 스프레드시트 사본을 만들어두는 걸 권장한다. 이미 값이 일치하면 아무 것도 하지 않는다.
+function ensureTopSummaryReservedRows_() {
   var props = PropertiesService.getDocumentProperties();
 
-  if (props.getProperty(TOP_SUMMARY_MIGRATION_FLAG_KEY) === "true") {
-    Logger.log("이미 마이그레이션이 완료된 상태입니다. 다시 실행할 필요 없습니다.");
+  var appliedRaw = props.getProperty(TOP_SUMMARY_APPLIED_ROWS_KEY);
+  var applied;
+
+  if (appliedRaw !== null) {
+    applied = Number(appliedRaw);
+  } else if (props.getProperty(TOP_SUMMARY_MIGRATION_FLAG_KEY) === "true") {
+    // 구버전(고정 100행 마이그레이션)에서 넘어온 경우, 그때 실제로 반영된 값을 이어받는다.
+    applied = 100;
+  } else {
+    applied = 0;
+  }
+
+  if (applied === TOP_SUMMARY_RESERVED_ROWS) {
+    props.setProperty(TOP_SUMMARY_APPLIED_ROWS_KEY, String(applied));
+    Logger.log("이미 " + applied + "행으로 반영돼 있습니다. 변경 없음.");
     return;
   }
 
@@ -32,23 +46,30 @@ function migrateAddTopSummaryReservedRows_() {
   var dashboardSheet = ss.getSheetByName(DASH_SHEET_NAME);
 
   var state = loadBlockState_();
-  var shift = DETAIL_CONTENT_BASE_ROW - 1;
+  var hasExistingContent = state.archiveBoundaryEndRow > 0 || state.activeEntries.length > 0;
+  var delta = TOP_SUMMARY_RESERVED_ROWS - applied; // 늘리면 +, 줄이면 -
 
-  if (shift > 0 && (state.archiveBoundaryEndRow > 0 || state.activeEntries.length > 0)) {
-    dashboardSheet.insertRowsBefore(1, shift);
+  if (hasExistingContent && delta !== 0) {
+    var boundaryRow = applied + 1; // 지금까지 예약폭 바로 다음 행
 
-    var newArchiveBoundaryEndRow = state.archiveBoundaryEndRow > 0 ? state.archiveBoundaryEndRow + shift : 0;
+    if (delta > 0) {
+      dashboardSheet.insertRowsBefore(boundaryRow, delta);
+    } else {
+      dashboardSheet.deleteRows(boundaryRow + delta, -delta);
+    }
+
+    var newArchiveBoundaryEndRow = state.archiveBoundaryEndRow > 0 ? state.archiveBoundaryEndRow + delta : 0;
     var newActiveEntries = state.activeEntries.map(function(e) {
-      return { dateKey: e.dateKey, startRow: e.startRow + shift, endRow: e.endRow + shift };
+      return { dateKey: e.dateKey, startRow: e.startRow + delta, endRow: e.endRow + delta };
     });
 
     saveBlockState_({ archiveBoundaryEndRow: newArchiveBoundaryEndRow, activeEntries: newActiveEntries });
-    Logger.log("마이그레이션 완료: 기존 블록을 " + shift + "행만큼 아래로 이동했습니다.");
+    Logger.log("반영 완료: 예약 행을 " + applied + " -> " + TOP_SUMMARY_RESERVED_ROWS + "로 조정했습니다 (기존 블록 " + delta + "행 이동).");
   } else {
-    Logger.log("밀어낼 기존 블록이 없어 행 이동 없이 넘어갑니다.");
+    Logger.log("이동할 기존 블록이 없어 행 이동 없이 넘어갑니다.");
   }
 
-  props.setProperty(TOP_SUMMARY_MIGRATION_FLAG_KEY, "true");
+  props.setProperty(TOP_SUMMARY_APPLIED_ROWS_KEY, String(TOP_SUMMARY_RESERVED_ROWS));
 }
 
 // DA운영설정 시트의 헤더(예: "조회일", "전일") 밑 2행에 있는 날짜 값을 기준으로,
@@ -74,16 +95,7 @@ function renderDashboardForHeaderDate_(headerName) {
   var mediaOrder = meta.mediaOrder;
   var activeProducts = meta.activeProducts;
 
-  var headerRow = settingSheet.getRange(1, 1, 1, settingSheet.getLastColumn()).getValues()[0];
-  var targetDateCol = headerRow.indexOf(headerName);
-
-  if (targetDateCol === -1) {
-    throw new Error("DA운영설정 시트에서 '" + headerName + "' 헤더를 찾을 수 없습니다.");
-  }
-
-  var targetDate = settingSheet.getRange(2, targetDateCol + 1).getValue();
-  if (!(targetDate instanceof Date)) targetDate = new Date();
-
+  var targetDate = getHeaderDate_(settingSheet, headerName);
   var dateKey = Utilities.formatDate(targetDate, TIMEZONE, "yyyy-MM-dd");
 
   var dayLogs = [];
@@ -97,9 +109,25 @@ function renderDashboardForHeaderDate_(headerName) {
   }
 
   upsertDateBlock_(dashboardSheet, dateKey, dayLogs, mediaOrder, activeProducts);
-  renderRecentFinalSummary_(dashboardSheet, logs, mediaOrder, activeProducts);
+
+  var summaryRefDate = getHeaderDate_(settingSheet, "조회일");
+  renderRecentFinalSummary_(dashboardSheet, logs, mediaOrder, activeProducts, summaryRefDate);
 
   applyColumnWidths_(dashboardSheet);
+}
+
+// DA운영설정 시트의 헤더(예: "조회일", "전일") 밑 2행에 있는 날짜 값을 읽어온다.
+// 값이 없거나 날짜가 아니면 오늘 날짜로 대체한다.
+function getHeaderDate_(settingSheet, headerName) {
+  var headerRow = settingSheet.getRange(1, 1, 1, settingSheet.getLastColumn()).getValues()[0];
+  var col = headerRow.indexOf(headerName);
+
+  if (col === -1) {
+    throw new Error("DA운영설정 시트에서 '" + headerName + "' 헤더를 찾을 수 없습니다.");
+  }
+
+  var value = settingSheet.getRange(2, col + 1).getValue();
+  return (value instanceof Date) ? value : new Date();
 }
 
 // 최근 32일 구간 전체만 다시 그린다 (과거 로그가 수정됐을 때 대시보드에 반영하기 위함).
@@ -173,7 +201,8 @@ function rebuildRecentDashboard_v2() {
 
   saveBlockState_({ archiveBoundaryEndRow: archiveBoundaryEndRow, activeEntries: newActiveEntries });
 
-  renderRecentFinalSummary_(dashboardSheet, logs, mediaOrder, activeProducts);
+  var summaryRefDate = getHeaderDate_(settingSheet, "조회일");
+  renderRecentFinalSummary_(dashboardSheet, logs, mediaOrder, activeProducts, summaryRefDate);
 
   applyColumnWidths_(dashboardSheet);
 }
@@ -430,13 +459,21 @@ function renderDateBlock_(dashboardSheet, startRow, dateKey, dayLogs, mediaOrder
   return row; // 이 블록의 마지막 행(전체합계 행)
 }
 
-// 대시보드 최상단, 예약된 TOP_SUMMARY_RESERVED_ROWS행 안에 "최근 N일 최종마감([최종마감] 00:00)
-// 비교표"를 그린다. 매체+보종 조합을 행으로, 날짜별 비용/DB/단가를 열로 나란히 배치한다.
+// 대시보드 최상단, 예약된 TOP_SUMMARY_RESERVED_ROWS행 안에 "조회일 기준 최근 N일 최종마감
+// ([최종마감] 00:00) 비교표"를 그린다. 매체+보종 조합을 행으로, 날짜별 비용/DB/단가를 열로
+// 나란히 배치한다. 로그에 실제 데이터가 있는지와 무관하게 "조회일, 조회일-1, 조회일-2"를
+// 그대로 사용하므로(날짜 목록을 로그에서 동적으로 찾지 않음), 데이터가 없는 날짜는 빈 칸으로 보인다.
 // 예약 영역 전체를 매번 지우고 다시 그리므로, 그 아래 날짜별 상세 블록들의 위치는 절대 흔들리지 않는다.
-function renderRecentFinalSummary_(dashboardSheet, logs, mediaOrder, activeProducts) {
+function renderRecentFinalSummary_(dashboardSheet, logs, mediaOrder, activeProducts, refDate) {
 
-  // 로그 중 [최종마감](00:00) 항목만 모아서 날짜별로 인덱싱한다.
-  var finalDatesSet = {};
+  var recentDates = [];
+  for (var d = TOP_SUMMARY_RECENT_DAYS - 1; d >= 0; d--) {
+    var dt = new Date(refDate);
+    dt.setDate(dt.getDate() - d);
+    recentDates.push(Utilities.formatDate(dt, TIMEZONE, "yyyy-MM-dd"));
+  }
+
+  // 로그 중 [최종마감](00:00) 항목만, 위에서 정한 3개 날짜에 해당하는 것만 인덱싱한다.
   var finalMap = {}; // "날짜_매체_보종" -> {cost, db}
 
   for (var i = 1; i < logs.length; i++) {
@@ -447,7 +484,7 @@ function renderRecentFinalSummary_(dashboardSheet, logs, mediaOrder, activeProdu
     if (t !== "00:00") continue;
 
     var dateKey = Utilities.formatDate(logDate, TIMEZONE, "yyyy-MM-dd");
-    finalDatesSet[dateKey] = true;
+    if (recentDates.indexOf(dateKey) === -1) continue;
 
     var key = dateKey + "_" + String(logs[i][1]).trim() + "_" + String(logs[i][2]).trim();
     finalMap[key] = {
@@ -456,28 +493,18 @@ function renderRecentFinalSummary_(dashboardSheet, logs, mediaOrder, activeProdu
     };
   }
 
-  var recentDates = Object.keys(finalDatesSet).sort(); // 오래된 -> 최신
-  if (recentDates.length > TOP_SUMMARY_RECENT_DAYS) {
-    recentDates = recentDates.slice(recentDates.length - TOP_SUMMARY_RECENT_DAYS);
-  }
-
   var maxCol = Math.max(dashboardSheet.getMaxColumns(), 20);
   dashboardSheet.getRange(TOP_SUMMARY_START_ROW, 1, TOP_SUMMARY_RESERVED_ROWS, maxCol).clear();
 
   var row = TOP_SUMMARY_START_ROW;
 
   dashboardSheet.getRange(row, 1)
-    .setValue("최근 " + TOP_SUMMARY_RECENT_DAYS + "일 최종마감 비교")
+    .setValue("최근 " + TOP_SUMMARY_RECENT_DAYS + "일 최종마감 비교 (조회일 기준)")
     .setBackground("#444444")
     .setFontColor("white")
     .setFontWeight("bold");
 
   row++;
-
-  if (recentDates.length === 0) {
-    dashboardSheet.getRange(row, 1).setValue("표시할 최종마감 데이터가 없습니다.");
-    return;
-  }
 
   var header1 = ["", ""];
   var header2 = ["매체", "보종"];
