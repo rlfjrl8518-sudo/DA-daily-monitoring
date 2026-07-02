@@ -1,0 +1,314 @@
+<!DOCTYPE html>
+<html>
+<head>
+<base target="_top">
+<meta charset="utf-8">
+<script src="https://www.gstatic.com/charts/loader.js"></script>
+<style>
+  * { box-sizing: border-box; }
+  body {
+    font-family: "Segoe UI", "Noto Sans KR", Arial, sans-serif;
+    margin: 0;
+    padding: 16px 20px;
+    color: #202124;
+    font-size: 13px;
+  }
+  h2 {
+    font-size: 15px;
+    margin: 0 0 12px;
+    color: #3c4043;
+  }
+  .filters {
+    display: flex;
+    gap: 12px;
+    align-items: center;
+    margin-bottom: 16px;
+  }
+  .filters label {
+    font-size: 12px;
+    color: #5f6368;
+    margin-right: 4px;
+  }
+  select {
+    padding: 5px 8px;
+    border: 1px solid #dadce0;
+    border-radius: 6px;
+    font-size: 13px;
+    background: #fff;
+  }
+  .charts {
+    display: flex;
+    gap: 12px;
+    margin-bottom: 18px;
+  }
+  .chart-box {
+    flex: 1;
+    border: 1px solid #e8eaed;
+    border-radius: 8px;
+    padding: 8px;
+  }
+  .chart-box .chart-title {
+    font-size: 12px;
+    color: #5f6368;
+    margin: 2px 0 4px 4px;
+  }
+  .chart {
+    width: 100%;
+    height: 200px;
+  }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12px;
+  }
+  thead th {
+    text-align: right;
+    padding: 6px 10px;
+    border-bottom: 2px solid #dadce0;
+    color: #5f6368;
+    font-weight: 600;
+    position: sticky;
+    top: 0;
+    background: #fff;
+  }
+  thead th:first-child { text-align: left; }
+  tbody td {
+    text-align: right;
+    padding: 5px 10px;
+    border-bottom: 1px solid #f1f3f4;
+  }
+  tbody td:first-child { text-align: left; color: #3c4043; }
+  tbody tr:hover { background: #f8f9fa; }
+  .table-wrap {
+    max-height: 320px;
+    overflow-y: auto;
+    border: 1px solid #e8eaed;
+    border-radius: 8px;
+  }
+  .status {
+    display: inline-block;
+    margin-left: 6px;
+    font-size: 11px;
+    font-weight: 600;
+    padding: 1px 6px;
+    border-radius: 10px;
+  }
+  .status-good { color: #1e8e3e; background: #e6f4ea; }
+  .status-warn { color: #b06000; background: #fef7e0; }
+  .status-bad { color: #c5221f; background: #fce8e6; }
+  .empty { color: #80868b; padding: 12px 4px; }
+</style>
+</head>
+<body>
+  <h2>최근 <span id="dayCount"></span>일 최종마감 추이</h2>
+
+  <div class="filters">
+    <label for="mediaSelect">매체</label>
+    <select id="mediaSelect"></select>
+    <label for="productSelect">보종</label>
+    <select id="productSelect"></select>
+  </div>
+
+  <div class="charts">
+    <div class="chart-box">
+      <div class="chart-title">비용 추이</div>
+      <div id="costChart" class="chart"></div>
+    </div>
+    <div class="chart-box">
+      <div class="chart-title">DB 추이</div>
+      <div id="dbChart" class="chart"></div>
+    </div>
+    <div class="chart-box">
+      <div class="chart-title">단가(CPA) 추이</div>
+      <div id="cpaChart" class="chart"></div>
+    </div>
+  </div>
+
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>날짜</th>
+          <th>비용</th>
+          <th>DB</th>
+          <th>단가</th>
+        </tr>
+      </thead>
+      <tbody id="tableBody"></tbody>
+    </table>
+  </div>
+
+<script>
+  var DATA = <?!= dataJson ?>;
+  var ALL = "__ALL__";
+
+  document.getElementById('dayCount').textContent = DATA.days.length;
+
+  var mediaSelect = document.getElementById('mediaSelect');
+  var productSelect = document.getElementById('productSelect');
+
+  var allOption = document.createElement('option');
+  allOption.value = ALL;
+  allOption.textContent = "전체";
+  mediaSelect.appendChild(allOption);
+
+  DATA.mediaGroups.forEach(function(g) {
+    var opt = document.createElement('option');
+    opt.value = g.media;
+    opt.textContent = g.media;
+    mediaSelect.appendChild(opt);
+  });
+
+  function findMediaGroup(media) {
+    for (var i = 0; i < DATA.mediaGroups.length; i++) {
+      if (DATA.mediaGroups[i].media === media) return DATA.mediaGroups[i];
+    }
+    return null;
+  }
+
+  function rebuildProductOptions() {
+    productSelect.innerHTML = '';
+    var allOpt = document.createElement('option');
+    allOpt.value = ALL;
+    allOpt.textContent = "전체";
+    productSelect.appendChild(allOpt);
+
+    if (mediaSelect.value === ALL) {
+      productSelect.disabled = true;
+      return;
+    }
+
+    productSelect.disabled = false;
+    var group = findMediaGroup(mediaSelect.value);
+    if (!group) return;
+
+    group.items.forEach(function(item) {
+      var opt = document.createElement('option');
+      opt.value = item.product;
+      opt.textContent = item.product;
+      productSelect.appendChild(opt);
+    });
+  }
+
+  // 선택 조건(매체/보종)에 맞는 날짜별 {cost, db} 합계 배열과, 단일 보종이 선택된 경우의
+  // targetCPA(그 외에는 null)를 계산한다.
+  function computeSeries() {
+    var days = DATA.days;
+    var totals = days.map(function() { return { cost: 0, db: 0 }; });
+    var targetCPA = null;
+
+    var mediaValue = mediaSelect.value;
+    var productValue = productSelect.value;
+
+    var groups = mediaValue === ALL ? DATA.mediaGroups : [findMediaGroup(mediaValue)].filter(Boolean);
+
+    groups.forEach(function(group) {
+      var items = group.items;
+
+      if (mediaValue !== ALL && productValue !== ALL) {
+        items = items.filter(function(it) { return it.product === productValue; });
+        if (items.length === 1) targetCPA = items[0].targetCPA;
+      }
+
+      items.forEach(function(item) {
+        item.byDate.forEach(function(entry, idx) {
+          if (!entry) return;
+          totals[idx].cost += entry.cost;
+          totals[idx].db += entry.db;
+        });
+      });
+    });
+
+    return days.map(function(d, idx) {
+      var cost = totals[idx].cost;
+      var db = totals[idx].db;
+      return {
+        date: d,
+        cost: cost,
+        db: db,
+        cpa: db > 0 ? Math.round(cost / db) : 0,
+        hasData: cost > 0 || db > 0
+      };
+    }).map(function(row) { row.targetCPA = targetCPA; return row; });
+  }
+
+  function statusBadge(row) {
+    if (row.targetCPA === null || row.targetCPA === undefined || !row.hasData) return '';
+    if (row.cpa <= row.targetCPA) return '<span class="status status-good">적정</span>';
+    if (row.cpa <= row.targetCPA * 1.2) return '<span class="status status-warn">주의</span>';
+    return '<span class="status status-bad">초과</span>';
+  }
+
+  function renderTable(rows) {
+    var body = document.getElementById('tableBody');
+    body.innerHTML = '';
+
+    rows.forEach(function(row) {
+      var tr = document.createElement('tr');
+      tr.innerHTML =
+        '<td>' + row.date + '</td>' +
+        '<td>' + (row.hasData ? row.cost.toLocaleString() : '-') + '</td>' +
+        '<td>' + (row.hasData ? row.db.toLocaleString() : '-') + '</td>' +
+        '<td>' + (row.hasData ? row.cpa.toLocaleString() : '-') + statusBadge(row) + '</td>';
+      body.appendChild(tr);
+    });
+  }
+
+  function drawCharts(rows) {
+    var costData = new google.visualization.DataTable();
+    costData.addColumn('string', '날짜');
+    costData.addColumn('number', '비용');
+
+    var dbData = new google.visualization.DataTable();
+    dbData.addColumn('string', '날짜');
+    dbData.addColumn('number', 'DB');
+
+    var cpaData = new google.visualization.DataTable();
+    cpaData.addColumn('string', '날짜');
+    cpaData.addColumn('number', '단가');
+
+    rows.forEach(function(row) {
+      costData.addRow([row.date.slice(5), row.cost]);
+      dbData.addRow([row.date.slice(5), row.db]);
+      cpaData.addRow([row.date.slice(5), row.cpa]);
+    });
+
+    var baseOptions = {
+      legend: { position: 'none' },
+      chartArea: { left: 45, top: 10, right: 10, bottom: 30 },
+      colors: ['#4285f4'],
+      pointSize: 4,
+      lineWidth: 2
+    };
+
+    new google.visualization.LineChart(document.getElementById('costChart'))
+      .draw(costData, Object.assign({}, baseOptions, { colors: ['#4285f4'] }));
+    new google.visualization.LineChart(document.getElementById('dbChart'))
+      .draw(dbData, Object.assign({}, baseOptions, { colors: ['#0f9d58'] }));
+    new google.visualization.LineChart(document.getElementById('cpaChart'))
+      .draw(cpaData, Object.assign({}, baseOptions, { colors: ['#db4437'] }));
+  }
+
+  function refresh() {
+    var rows = computeSeries();
+    if (rows.every(function(r) { return !r.hasData; })) {
+      document.getElementById('tableBody').innerHTML =
+        '<tr><td colspan="4" class="empty">표시할 최종마감 데이터가 없습니다.</td></tr>';
+    } else {
+      renderTable(rows);
+    }
+    drawCharts(rows);
+  }
+
+  mediaSelect.addEventListener('change', function() {
+    rebuildProductOptions();
+    refresh();
+  });
+  productSelect.addEventListener('change', refresh);
+
+  rebuildProductOptions();
+  google.charts.load('current', { packages: ['corechart'] });
+  google.charts.setOnLoadCallback(refresh);
+</script>
+</body>
+</html>
