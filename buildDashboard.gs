@@ -4,18 +4,16 @@ var BLOCK_STATE_PROPERTY_KEY = "DA_BLOCK_STATE";
 var TIMEZONE = "Asia/Seoul";
 var RECHECK_WINDOW_DAYS = 32; // 재검증 시 다시 그릴 최근 일수 (기존 33일 기준과 동일)
 
-function onOpen() {
-  SpreadsheetApp.getUi()
-    .createMenu('DA 대시보드')
-    .addItem('오늘 현황 업데이트', 'buildDashboard_v2')
-    .addItem('최근 32일 재검증 (과거 로그 수정 반영)', 'rebuildRecentDashboard_v2')
-    .addToUi();
-}
-
-// 오늘 날짜 블록만 다시 그린다. 과거 블록은 건드리지 않으므로 자주 실행해도 가볍다.
-// 주의: 이전 버전(전체 재실행 방식)에서 새로 넘어온 경우, 반드시 rebuildRecentDashboard_v2를
-// 먼저 한 번 실행해서 상태를 새로 만든 뒤 이 함수를 사용할 것.
-function buildDashboard_v2() {
+// DA운영설정 시트의 헤더(예: "조회일", "전일") 밑 2행에 있는 날짜 값을 기준으로,
+// 그 날짜 하나의 블록만 다시 그린다. saveMonitoringSnapshot()/saveMonitoringSnapshot_final()이
+// 로그를 적재한 뒤 어느 날짜를 다시 그려야 하는지는 항상 이 헤더 셀 값이 결정하므로,
+// 시스템 시계로 "오늘"/"어제"를 추측하지 않는다 (운영자가 조회일/전일을 직접 입력·변경함).
+// 다른 날짜(예: 월요일에 금/토/일을 순서대로)를 처리해야 할 때는 운영자가 헤더 셀 값을 바꿔가며
+// 이 함수를 여러 번 호출하면 되므로, 요일 판단 로직이 따로 필요 없다.
+// 주의: upsertDateBlock_는 "가장 최근(맨 아래) 블록"을 갱신하는 상황에서만 안전하다. 조회일/전일을
+// 이미 지나간 지 오래된 과거 날짜(맨 아래가 아닌 중간 블록)로 설정해서 정정하는 용도로는 쓰지 말고,
+// 그런 경우엔 rebuildRecentDashboard_v2()로 최근 32일 구간을 통째로 다시 그릴 것.
+function renderDashboardForHeaderDate_(headerName) {
 
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   var dashboardSheet = ss.getSheetByName(DASH_SHEET_NAME);
@@ -29,18 +27,29 @@ function buildDashboard_v2() {
   var mediaOrder = meta.mediaOrder;
   var activeProducts = meta.activeProducts;
 
-  var todayKey = Utilities.formatDate(new Date(), TIMEZONE, "yyyy-MM-dd");
+  var headerRow = settingSheet.getRange(1, 1, 1, settingSheet.getLastColumn()).getValues()[0];
+  var targetDateCol = headerRow.indexOf(headerName);
 
-  var todayLogs = [];
+  if (targetDateCol === -1) {
+    throw new Error("DA운영설정 시트에서 '" + headerName + "' 헤더를 찾을 수 없습니다.");
+  }
+
+  var targetDate = settingSheet.getRange(2, targetDateCol + 1).getValue();
+  if (!(targetDate instanceof Date)) targetDate = new Date();
+
+  var dateKey = Utilities.formatDate(targetDate, TIMEZONE, "yyyy-MM-dd");
+
+  var dayLogs = [];
   for (var i = 1; i < logs.length; i++) {
     var logDate = logs[i][0];
     if (!(logDate instanceof Date)) continue;
 
-    var dateKey = Utilities.formatDate(logDate, TIMEZONE, "yyyy-MM-dd");
-    if (dateKey === todayKey) todayLogs.push(logs[i]);
+    if (Utilities.formatDate(logDate, TIMEZONE, "yyyy-MM-dd") === dateKey) {
+      dayLogs.push(logs[i]);
+    }
   }
 
-  upsertDateBlock_(dashboardSheet, todayKey, todayLogs, mediaOrder, activeProducts);
+  upsertDateBlock_(dashboardSheet, dateKey, dayLogs, mediaOrder, activeProducts);
 
   applyColumnWidths_(dashboardSheet);
 }
