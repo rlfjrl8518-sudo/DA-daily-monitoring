@@ -207,21 +207,20 @@ function saveMonitoringSnapshot_final() {
 
 }
 
-// 당일현황 버튼: DB_RAW 기준으로 "조회일" 스냅샷을 로그에 적재하고, 그 날짜 블록만 다시 그린 뒤
-// 최근 N일 추이 대시보드(팝업)를 띄운다.
+// 당일현황 버튼: DB_RAW 기준으로 "조회일" 스냅샷을 로그에 적재하고, 그 날짜 블록만 다시 그린다.
+// 추이 대시보드 팝업은 여기서 자동으로 뜨지 않는다 (DA운영현황 시트 상단에 별도로 놓은
+// 버튼(그림)에서 showRecentTrendDashboard를 직접 호출해서 연다).
 function updateDAReport() {
   saveMonitoringSnapshot();
   renderDashboardForHeaderDate_("조회일");
-  showRecentTrendDashboard();
 }
 
 // 전일마감 버튼: DB_RAW 기준으로 "전일" 최종마감 스냅샷을 로그에 적재(기존 00:00 행 교체)하고,
-// 그 날짜 블록만 다시 그린 뒤 최근 N일 추이 대시보드(팝업)를 띄운다. 월요일에 금/토/일을 몰아
-// 처리할 때는 전일 셀 값을 바꿔가며 이 함수를 순서대로 여러 번 실행한다.
+// 그 날짜 블록만 다시 그린다. 월요일에 금/토/일을 몰아 처리할 때는 전일 셀 값을 바꿔가며
+// 이 함수를 순서대로 여러 번 실행한다. 추이 대시보드 팝업은 여기서 자동으로 뜨지 않는다.
 function updateDAReport_final() {
   saveMonitoringSnapshot_final();
   renderDashboardForHeaderDate_("전일");
-  showRecentTrendDashboard();
 }
 
 function onOpen() {

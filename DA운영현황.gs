@@ -4,6 +4,48 @@ var BLOCK_STATE_PROPERTY_KEY = "DA_BLOCK_STATE";
 var TIMEZONE = "Asia/Seoul";
 var RECHECK_WINDOW_DAYS = 32; // 재검증 시 다시 그릴 최근 일수 (기존 33일 기준과 동일)
 
+// DA운영현황 시트 맨 위 3행은 추이 대시보드 팝업을 여는 버튼(그림)을 위해 항상 비워둔다.
+// 스크립트는 이 행들을 절대 지우거나 쓰지 않고, 날짜별 상세 블록은 항상 4행부터 쌓인다.
+var DASHBOARD_TOP_RESERVED_ROWS = 3;
+var DASHBOARD_DETAIL_BASE_ROW = DASHBOARD_TOP_RESERVED_ROWS + 1;
+var TOP_BUTTON_ROWS_MIGRATION_FLAG_KEY = "DA_TOP_BUTTON_ROWS_RESERVED";
+
+// 일회성 마이그레이션: 상단 버튼용 3행을 처음 확보할 때 딱 한 번만 실행한다. 이미 1행부터
+// 쌓여있던 기존 날짜별 블록 전체를 3행만큼 아래로 밀어내고(insertRowsBefore, 기존 내용은
+// 그대로 유지됨), 블록 상태의 시작/끝 행 번호도 같이 보정한다. 이미 실행됐으면 아무 것도
+// 하지 않고 넘어간다.
+function migrateReserveTopButtonRows() {
+  var props = PropertiesService.getDocumentProperties();
+
+  if (props.getProperty(TOP_BUTTON_ROWS_MIGRATION_FLAG_KEY) === "true") {
+    Logger.log("이미 상단 버튼용 행 확보가 완료된 상태입니다. 다시 실행할 필요 없습니다.");
+    return;
+  }
+
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var dashboardSheet = ss.getSheetByName(DASH_SHEET_NAME);
+
+  var state = loadBlockState_();
+  var shift = DASHBOARD_TOP_RESERVED_ROWS;
+
+  if (state.archiveBoundaryEndRow > 0 || state.activeEntries.length > 0) {
+    dashboardSheet.insertRowsBefore(1, shift);
+    dashboardSheet.getRange(1, 1, shift, Math.max(dashboardSheet.getMaxColumns(), 20)).clearDataValidations();
+
+    var newArchiveBoundaryEndRow = state.archiveBoundaryEndRow > 0 ? state.archiveBoundaryEndRow + shift : 0;
+    var newActiveEntries = state.activeEntries.map(function(e) {
+      return { dateKey: e.dateKey, startRow: e.startRow + shift, endRow: e.endRow + shift };
+    });
+
+    saveBlockState_({ archiveBoundaryEndRow: newArchiveBoundaryEndRow, activeEntries: newActiveEntries });
+    Logger.log("마이그레이션 완료: 기존 블록을 " + shift + "행만큼 아래로 이동했습니다.");
+  } else {
+    Logger.log("밀어낼 기존 블록이 없어 행 이동 없이 넘어갑니다.");
+  }
+
+  props.setProperty(TOP_BUTTON_ROWS_MIGRATION_FLAG_KEY, "true");
+}
+
 // DA운영설정 시트의 헤더(예: "조회일", "전일") 밑 2행에 있는 날짜 값을 기준으로,
 // 그 날짜 하나의 블록만 다시 그린다. saveMonitoringSnapshot()/saveMonitoringSnapshot_final()이
 // 로그를 적재한 뒤 어느 날짜를 다시 그려야 하는지는 항상 이 헤더 셀 값이 결정하므로,
@@ -101,7 +143,7 @@ function rebuildRecentDashboard_v2() {
   });
 
   // 재검증 구간은 아카이브 경계 바로 다음 행부터 시작해서, 시트 끝까지를 통째로 지우고 다시 그린다.
-  var startRow = archiveBoundaryEndRow > 0 ? archiveBoundaryEndRow + 3 : 1;
+  var startRow = archiveBoundaryEndRow > 0 ? archiveBoundaryEndRow + 3 : DASHBOARD_DETAIL_BASE_ROW;
 
   var lastRowNum = dashboardSheet.getLastRow();
   if (lastRowNum >= startRow) {
@@ -153,7 +195,7 @@ function upsertDateBlock_(dashboardSheet, dateKey, dayLogs, mediaOrder, activePr
   } else if (activeEntries.length > 0) {
     startRow = activeEntries[activeEntries.length - 1].endRow + 3;
   } else {
-    startRow = state.archiveBoundaryEndRow > 0 ? state.archiveBoundaryEndRow + 3 : 1;
+    startRow = state.archiveBoundaryEndRow > 0 ? state.archiveBoundaryEndRow + 3 : DASHBOARD_DETAIL_BASE_ROW;
   }
 
   var endRow = renderDateBlock_(dashboardSheet, startRow, dateKey, dayLogs, mediaOrder, activeProducts);
