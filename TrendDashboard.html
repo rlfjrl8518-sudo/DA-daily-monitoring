@@ -29,7 +29,7 @@
     color: #5f6368;
     margin-right: 4px;
   }
-  select {
+  select, .msel-btn {
     padding: 5px 8px;
     border: 1px solid #dadce0;
     border-radius: 6px;
@@ -98,6 +98,45 @@
   .status-warn { color: #b06000; background: #fef7e0; }
   .status-bad { color: #c5221f; background: #fce8e6; }
   .empty { color: #80868b; padding: 12px 4px; }
+
+  .msel {
+    position: relative;
+    display: inline-block;
+  }
+  .msel-btn {
+    cursor: pointer;
+    min-width: 90px;
+    text-align: left;
+  }
+  .msel-btn:after {
+    content: "▾";
+    float: right;
+    color: #80868b;
+    margin-left: 8px;
+  }
+  .msel-panel {
+    position: absolute;
+    top: calc(100% + 4px);
+    left: 0;
+    z-index: 20;
+    background: #fff;
+    border: 1px solid #dadce0;
+    border-radius: 6px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.12);
+    padding: 6px 0;
+    min-width: 160px;
+    max-height: 220px;
+    overflow-y: auto;
+  }
+  .msel-item {
+    display: block;
+    padding: 5px 12px;
+    font-size: 13px;
+    white-space: nowrap;
+    cursor: pointer;
+  }
+  .msel-item:hover { background: #f1f3f4; }
+  .msel-item input { margin-right: 6px; }
 </style>
 </head>
 <body>
@@ -106,10 +145,10 @@
   <div class="filters">
     <label for="daysInput">최근 일수</label>
     <input type="number" id="daysInput" min="1" value="14" style="width:60px;">
-    <label for="mediaSelect">매체</label>
-    <select id="mediaSelect"></select>
-    <label for="productSelect">보종</label>
-    <select id="productSelect"></select>
+    <label>매체</label>
+    <div class="msel" id="mediaMsel"></div>
+    <label>보종</label>
+    <div class="msel" id="productMsel"></div>
   </div>
 
   <div class="charts">
@@ -143,26 +182,10 @@
 
 <script>
   var DATA = <?!= dataJson ?>;
-  var ALL = "__ALL__";
 
   var daysInput = document.getElementById('daysInput');
   daysInput.max = DATA.days.length;
   daysInput.value = Math.min(DATA.defaultDays || 14, DATA.days.length);
-
-  var mediaSelect = document.getElementById('mediaSelect');
-  var productSelect = document.getElementById('productSelect');
-
-  var allOption = document.createElement('option');
-  allOption.value = ALL;
-  allOption.textContent = "전체";
-  mediaSelect.appendChild(allOption);
-
-  DATA.mediaGroups.forEach(function(g) {
-    var opt = document.createElement('option');
-    opt.value = g.media;
-    opt.textContent = g.media;
-    mediaSelect.appendChild(opt);
-  });
 
   function findMediaGroup(media) {
     for (var i = 0; i < DATA.mediaGroups.length; i++) {
@@ -186,29 +209,103 @@
     return list;
   }
 
-  // 매체를 "전체"로 두더라도 보종만 골라 매체 간 합산해서 볼 수 있도록, 보종 선택창은
-  // 매체 선택 여부와 상관없이 항상 활성화해둔다.
-  function rebuildProductOptions() {
-    productSelect.innerHTML = '';
-    var allOpt = document.createElement('option');
-    allOpt.value = ALL;
-    allOpt.textContent = "전체";
-    productSelect.appendChild(allOpt);
+  function toSet(list) {
+    var s = {};
+    list.forEach(function(v) { s[v] = true; });
+    return s;
+  }
 
-    var products;
-    if (mediaSelect.value === ALL) {
-      products = collectAllProducts();
-    } else {
-      var group = findMediaGroup(mediaSelect.value);
-      products = group ? group.items.map(function(item) { return item.product; }) : [];
+  // 체크박스로 여러 개를 고를 수 있는 작은 드롭다운. 선택이 하나도 없으면 "전체"로 취급한다.
+  function createMultiSelect(container, allLabel) {
+    var btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'msel-btn';
+
+    var panel = document.createElement('div');
+    panel.className = 'msel-panel';
+    panel.style.display = 'none';
+
+    container.appendChild(btn);
+    container.appendChild(panel);
+
+    var selected = {};
+    var onChangeCb = null;
+
+    function updateButtonLabel() {
+      var keys = Object.keys(selected);
+      btn.textContent = keys.length === 0 ? allLabel : (keys.length + '개 선택');
     }
 
-    products.forEach(function(p) {
-      var opt = document.createElement('option');
-      opt.value = p;
-      opt.textContent = p;
-      productSelect.appendChild(opt);
+    function setOptions(values) {
+      selected = {};
+      panel.innerHTML = '';
+
+      values.forEach(function(v) {
+        var label = document.createElement('label');
+        label.className = 'msel-item';
+
+        var cb = document.createElement('input');
+        cb.type = 'checkbox';
+        cb.value = v;
+        cb.addEventListener('change', function() {
+          if (cb.checked) selected[v] = true; else delete selected[v];
+          updateButtonLabel();
+          if (onChangeCb) onChangeCb();
+        });
+
+        label.appendChild(cb);
+        label.appendChild(document.createTextNode(v));
+        panel.appendChild(label);
+      });
+
+      updateButtonLabel();
+    }
+
+    btn.addEventListener('click', function(e) {
+      e.stopPropagation();
+      panel.style.display = panel.style.display === 'none' ? 'block' : 'none';
     });
+
+    document.addEventListener('click', function(e) {
+      if (!container.contains(e.target)) panel.style.display = 'none';
+    });
+
+    return {
+      setOptions: setOptions,
+      getSelected: function() { return Object.keys(selected); },
+      onChange: function(cb) { onChangeCb = cb; }
+    };
+  }
+
+  var mediaMultiSelect = createMultiSelect(document.getElementById('mediaMsel'), '전체');
+  var productMultiSelect = createMultiSelect(document.getElementById('productMsel'), '전체');
+
+  mediaMultiSelect.setOptions(DATA.mediaGroups.map(function(g) { return g.media; }));
+
+  // 매체를 하나도 안 골라도(=전체) 보종만 여러 개 골라 매체 간 합산해서 볼 수 있도록,
+  // 보종 목록은 매체 선택 여부와 상관없이 항상 구성한다.
+  function rebuildProductOptions() {
+    var selectedMedia = mediaMultiSelect.getSelected();
+    var products;
+
+    if (selectedMedia.length === 0) {
+      products = collectAllProducts();
+    } else {
+      var seen = {};
+      products = [];
+      selectedMedia.forEach(function(m) {
+        var group = findMediaGroup(m);
+        if (!group) return;
+        group.items.forEach(function(item) {
+          if (!seen[item.product]) {
+            seen[item.product] = true;
+            products.push(item.product);
+          }
+        });
+      });
+    }
+
+    productMultiSelect.setOptions(products);
   }
 
   // 입력창에 지정한 최근 일수만큼(전체 중 뒤쪽 N일) 잘라서 사용할 시작 인덱스를 구한다.
@@ -219,23 +316,26 @@
     return DATA.days.length - n;
   }
 
-  // 선택 조건(매체/보종, 최근 일수)에 맞는 날짜별 {cost, db} 합계 배열과, 매칭된 항목이
-  // 정확히 하나일 때의 targetCPA(그 외에는 null)를 계산한다. 매체가 "전체"여도 보종만
-  // 선택하면 그 보종을 매체 전체에서 합산해서 보여준다.
+  // 선택 조건(매체/보종 각각 다중 선택 가능, 최근 일수)에 맞는 날짜별 {cost, db} 합계
+  // 배열과, 매칭된 항목이 정확히 하나일 때의 targetCPA(그 외에는 null)를 계산한다.
   function computeSeries() {
     var startIdx = getVisibleStartIndex();
     var days = DATA.days.slice(startIdx);
     var totals = days.map(function() { return { cost: 0, db: 0 }; });
 
-    var mediaValue = mediaSelect.value;
-    var productValue = productSelect.value;
+    var mediaSet = toSet(mediaMultiSelect.getSelected()); // 비어있으면 전체 매체
+    var productSet = toSet(productMultiSelect.getSelected()); // 비어있으면 전체 보종
+    var mediaFilterOn = Object.keys(mediaSet).length > 0;
+    var productFilterOn = Object.keys(productSet).length > 0;
 
-    var groups = mediaValue === ALL ? DATA.mediaGroups : [findMediaGroup(mediaValue)].filter(Boolean);
+    var groups = DATA.mediaGroups.filter(function(g) {
+      return !mediaFilterOn || mediaSet[g.media];
+    });
 
     var matchedItems = [];
     groups.forEach(function(group) {
       group.items.forEach(function(item) {
-        if (productValue !== ALL && item.product !== productValue) return;
+        if (productFilterOn && !productSet[item.product]) return;
         matchedItems.push(item);
       });
     });
@@ -339,11 +439,11 @@
     if (chartsReady) refresh();
   }
 
-  mediaSelect.addEventListener('change', function() {
+  mediaMultiSelect.onChange(function() {
     rebuildProductOptions();
     refreshIfReady();
   });
-  productSelect.addEventListener('change', refreshIfReady);
+  productMultiSelect.onChange(refreshIfReady);
   daysInput.addEventListener('input', refreshIfReady);
   daysInput.addEventListener('change', refreshIfReady);
 
