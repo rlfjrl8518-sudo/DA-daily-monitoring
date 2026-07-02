@@ -653,6 +653,10 @@ function resizeTopSummaryArea_(dashboardSheet, desiredRows) {
 
       if (delta > 0) {
         dashboardSheet.insertRowsBefore(boundaryRow, delta);
+        // insertRowsBefore는 인접 행의 서식(데이터 확인 규칙 포함)을 새 행에 복사할 수 있으므로,
+        // 새로 생긴 행은 바로 검증 규칙을 지워서 낡은 규칙이 다시 유입되는 걸 막는다.
+        var insertedMaxCol = Math.max(dashboardSheet.getMaxColumns(), 20);
+        dashboardSheet.getRange(boundaryRow, 1, delta, insertedMaxCol).clearDataValidations();
       } else {
         dashboardSheet.deleteRows(boundaryRow + delta, -delta);
       }
