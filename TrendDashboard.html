@@ -368,6 +368,65 @@
     }).map(function(row) { row.targetCPA = targetCPA; return row; });
   }
 
+  // 그래프용: 선택 조건에 맞는 항목들을 하나로 합치지 않고, 항목별로 나눈 시리즈 배열을 만든다.
+  // 보종을 특정했으면 보종별로(매체는 합산), 그렇지 않으면 매체별로(선택된 매체, 또는 전체 매체)
+  // 나눠서 각각의 날짜별 추이를 볼 수 있게 한다.
+  function computeGroupedSeries() {
+    var startIdx = getVisibleStartIndex();
+    var days = DATA.days.slice(startIdx);
+
+    var mediaSet = toSet(mediaMultiSelect.getSelected());
+    var productSet = toSet(productMultiSelect.getSelected());
+    var mediaFilterOn = Object.keys(mediaSet).length > 0;
+    var productFilterOn = Object.keys(productSet).length > 0;
+
+    var groups = DATA.mediaGroups.filter(function(g) {
+      return !mediaFilterOn || mediaSet[g.media];
+    });
+
+    var seriesMap = {};
+    var seriesOrder = [];
+
+    function seriesFor(label) {
+      if (!seriesMap[label]) {
+        seriesMap[label] = days.map(function() { return { cost: 0, db: 0 }; });
+        seriesOrder.push(label);
+      }
+      return seriesMap[label];
+    }
+
+    groups.forEach(function(group) {
+      group.items.forEach(function(item) {
+        if (productFilterOn && !productSet[item.product]) return;
+
+        var label = productFilterOn ? item.product : group.media;
+        var values = seriesFor(label);
+
+        item.byDate.slice(startIdx).forEach(function(entry, idx) {
+          if (!entry) return;
+          values[idx].cost += entry.cost;
+          values[idx].db += entry.db;
+        });
+      });
+    });
+
+    return {
+      days: days,
+      series: seriesOrder.map(function(label) {
+        return {
+          label: label,
+          values: seriesMap[label].map(function(v) {
+            return {
+              cost: v.cost,
+              db: v.db,
+              cpa: v.db > 0 ? Math.round(v.cost / v.db) : 0
+            };
+          })
+        };
+      })
+    };
+  }
+
   var DOW_LABELS = ['일', '월', '화', '수', '목', '금', '토'];
 
   // "yyyy-MM-dd" 문자열을 지역/시간대 영향 없이 요일 인덱스(0=일 ... 6=토)로 변환한다.
@@ -407,46 +466,44 @@
     });
   }
 
-  function drawCharts(rows) {
-    var costData = new google.visualization.DataTable();
-    costData.addColumn('string', '날짜');
-    costData.addColumn('number', '비용');
+  var SERIES_COLORS = ['#4285f4', '#0f9d58', '#db4437', '#f4b400', '#9c27b0', '#00acc1', '#ff7043', '#5c6bc0'];
 
-    var dbData = new google.visualization.DataTable();
-    dbData.addColumn('string', '날짜');
-    dbData.addColumn('number', 'DB');
+  // 항목별(매체 또는 보종) 시리즈를 한 차트에 여러 선으로 그린다. 시리즈가 하나뿐이면
+  // 범례는 굳이 안 보여준다.
+  function drawCharts(grouped) {
+    function buildTable(valueKey) {
+      var dt = new google.visualization.DataTable();
+      dt.addColumn('string', '날짜');
+      grouped.series.forEach(function(s) { dt.addColumn('number', s.label); });
 
-    var cpaData = new google.visualization.DataTable();
-    cpaData.addColumn('string', '날짜');
-    cpaData.addColumn('number', '단가');
+      grouped.days.forEach(function(d, idx) {
+        var row = [d.slice(5)];
+        grouped.series.forEach(function(s) { row.push(s.values[idx][valueKey]); });
+        dt.addRow(row);
+      });
 
-    rows.forEach(function(row) {
-      costData.addRow([row.date.slice(5), row.cost]);
-      dbData.addRow([row.date.slice(5), row.db]);
-      cpaData.addRow([row.date.slice(5), row.cpa]);
-    });
+      return dt;
+    }
 
+    var multi = grouped.series.length > 1;
     var baseOptions = {
-      legend: { position: 'none' },
-      chartArea: { left: 45, top: 10, right: 10, bottom: 30 },
-      colors: ['#4285f4'],
+      legend: multi ? { position: 'bottom', textStyle: { fontSize: 10 } } : { position: 'none' },
+      chartArea: { left: 45, top: 10, right: 10, bottom: multi ? 55 : 30 },
+      colors: SERIES_COLORS,
       pointSize: 4,
       lineWidth: 2,
       curveType: 'function' // 완만한 곡선
     };
 
-    new google.visualization.LineChart(document.getElementById('costChart'))
-      .draw(costData, Object.assign({}, baseOptions, { colors: ['#4285f4'] }));
-    new google.visualization.LineChart(document.getElementById('dbChart'))
-      .draw(dbData, Object.assign({}, baseOptions, { colors: ['#0f9d58'] }));
-    new google.visualization.LineChart(document.getElementById('cpaChart'))
-      .draw(cpaData, Object.assign({}, baseOptions, { colors: ['#db4437'] }));
+    new google.visualization.LineChart(document.getElementById('costChart')).draw(buildTable('cost'), baseOptions);
+    new google.visualization.LineChart(document.getElementById('dbChart')).draw(buildTable('db'), baseOptions);
+    new google.visualization.LineChart(document.getElementById('cpaChart')).draw(buildTable('cpa'), baseOptions);
   }
 
   var sortOrder = document.getElementById('sortOrder');
 
   function refresh() {
-    var rows = computeSeries();
+    var rows = computeSeries(); // 표: 선택 조건 전체 합계
     if (rows.every(function(r) { return !r.hasData; })) {
       document.getElementById('tableBody').innerHTML =
         '<tr><td colspan="4" class="empty">표시할 최종마감 데이터가 없습니다.</td></tr>';
@@ -455,7 +512,7 @@
       var tableRows = sortOrder.value === 'desc' ? rows.slice().reverse() : rows;
       renderTable(tableRows);
     }
-    drawCharts(rows);
+    drawCharts(computeGroupedSeries()); // 그래프: 항목별로 나눠서 각각의 추이를 비교
   }
 
   var chartsReady = false;
