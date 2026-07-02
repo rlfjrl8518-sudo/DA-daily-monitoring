@@ -61,10 +61,12 @@
     border-collapse: collapse;
     font-size: 12px;
   }
+  thead th, tbody td {
+    border: 1px solid #dadce0;
+  }
   thead th {
     text-align: right;
     padding: 6px 10px;
-    border-bottom: 2px solid #dadce0;
     color: #5f6368;
     font-weight: 600;
     position: sticky;
@@ -75,7 +77,6 @@
   tbody td {
     text-align: right;
     padding: 5px 10px;
-    border-bottom: 1px solid #f1f3f4;
   }
   tbody td:first-child { text-align: left; color: #3c4043; }
   tbody tr:hover { background: #f8f9fa; }
@@ -170,6 +171,23 @@
     return null;
   }
 
+  // 매체와 무관하게, 전체 매체를 통틀어 등장하는 보종 이름 목록(중복 제거)을 구한다.
+  function collectAllProducts() {
+    var seen = {};
+    var list = [];
+    DATA.mediaGroups.forEach(function(g) {
+      g.items.forEach(function(item) {
+        if (!seen[item.product]) {
+          seen[item.product] = true;
+          list.push(item.product);
+        }
+      });
+    });
+    return list;
+  }
+
+  // 매체를 "전체"로 두더라도 보종만 골라 매체 간 합산해서 볼 수 있도록, 보종 선택창은
+  // 매체 선택 여부와 상관없이 항상 활성화해둔다.
   function rebuildProductOptions() {
     productSelect.innerHTML = '';
     var allOpt = document.createElement('option');
@@ -177,19 +195,18 @@
     allOpt.textContent = "전체";
     productSelect.appendChild(allOpt);
 
+    var products;
     if (mediaSelect.value === ALL) {
-      productSelect.disabled = true;
-      return;
+      products = collectAllProducts();
+    } else {
+      var group = findMediaGroup(mediaSelect.value);
+      products = group ? group.items.map(function(item) { return item.product; }) : [];
     }
 
-    productSelect.disabled = false;
-    var group = findMediaGroup(mediaSelect.value);
-    if (!group) return;
-
-    group.items.forEach(function(item) {
+    products.forEach(function(p) {
       var opt = document.createElement('option');
-      opt.value = item.product;
-      opt.textContent = item.product;
+      opt.value = p;
+      opt.textContent = p;
       productSelect.appendChild(opt);
     });
   }
@@ -202,35 +219,36 @@
     return DATA.days.length - n;
   }
 
-  // 선택 조건(매체/보종, 최근 일수)에 맞는 날짜별 {cost, db} 합계 배열과, 단일 보종이
-  // 선택된 경우의 targetCPA(그 외에는 null)를 계산한다.
+  // 선택 조건(매체/보종, 최근 일수)에 맞는 날짜별 {cost, db} 합계 배열과, 매칭된 항목이
+  // 정확히 하나일 때의 targetCPA(그 외에는 null)를 계산한다. 매체가 "전체"여도 보종만
+  // 선택하면 그 보종을 매체 전체에서 합산해서 보여준다.
   function computeSeries() {
     var startIdx = getVisibleStartIndex();
     var days = DATA.days.slice(startIdx);
     var totals = days.map(function() { return { cost: 0, db: 0 }; });
-    var targetCPA = null;
 
     var mediaValue = mediaSelect.value;
     var productValue = productSelect.value;
 
     var groups = mediaValue === ALL ? DATA.mediaGroups : [findMediaGroup(mediaValue)].filter(Boolean);
 
+    var matchedItems = [];
     groups.forEach(function(group) {
-      var items = group.items;
-
-      if (mediaValue !== ALL && productValue !== ALL) {
-        items = items.filter(function(it) { return it.product === productValue; });
-        if (items.length === 1) targetCPA = items[0].targetCPA;
-      }
-
-      items.forEach(function(item) {
-        item.byDate.slice(startIdx).forEach(function(entry, idx) {
-          if (!entry) return;
-          totals[idx].cost += entry.cost;
-          totals[idx].db += entry.db;
-        });
+      group.items.forEach(function(item) {
+        if (productValue !== ALL && item.product !== productValue) return;
+        matchedItems.push(item);
       });
     });
+
+    matchedItems.forEach(function(item) {
+      item.byDate.slice(startIdx).forEach(function(entry, idx) {
+        if (!entry) return;
+        totals[idx].cost += entry.cost;
+        totals[idx].db += entry.db;
+      });
+    });
+
+    var targetCPA = matchedItems.length === 1 ? matchedItems[0].targetCPA : null;
 
     return days.map(function(d, idx) {
       var cost = totals[idx].cost;
