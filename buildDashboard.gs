@@ -6,6 +6,9 @@ var PRODUCT_FILTER_CELL = "D1";
 var ALL_LABEL = "전체";
 var CHART_ROWS_PER_CHART = 14;
 var CHART_START_ROW = 3; // 1행 필터 + 여백 다음부터 차트 시작
+var CHART_WIDTH = 900;
+var CHART_HEIGHT = 260;
+var TIMEZONE = "Asia/Seoul";
 
 function buildDashboard_v2() {
 
@@ -18,18 +21,14 @@ function buildDashboard_v2() {
   var prevProductFilter = dashboardSheet.getRange(PRODUCT_FILTER_CELL).getValue();
 
   // clear()는 차트 객체를 지우지 않으므로 먼저 제거 (중복 삽입 방지)
-  dashboardSheet.getCharts().forEach(function(c) { dashboardSheet.removeChart(c); });
+  removeAllCharts_(dashboardSheet);
 
   dashboardSheet.clear();
 
-  var settings = settingSheet.getDataRange().getValues();
-
-  var lastRow = settingSheet.getLastRow();
-  var logs = settingSheet.getRange(1, 12, lastRow, 6).getValues();
-
-  var meta = getMediaAndProducts_(settings);
-  var mediaOrder = meta.mediaOrder;
-  var activeProducts = meta.activeProducts;
+  var data = loadSettingData_(settingSheet);
+  var logs = data.logs;
+  var mediaOrder = data.mediaOrder;
+  var activeProducts = data.activeProducts;
 
   // ---- 최상단: 필터 컨트롤 + 최근 7일 비용/DB/단가 차트 ----
   var contentStartRow = renderTop7DayCharts_(
@@ -47,13 +46,11 @@ function buildDashboard_v2() {
     var logDate = logs[i][0];
     if (!(logDate instanceof Date)) continue;
 
-    var logDateOnly = new Date(
-      Utilities.formatDate(logDate, "Asia/Seoul", "yyyy-MM-dd")
-    );
+    var logDateOnly = new Date(formatDateKey_(logDate));
 
     if (logDateOnly < sevenDaysAgo) continue;
 
-    var dateKey = Utilities.formatDate(logDate, "Asia/Seoul", "yyyy-MM-dd");
+    var dateKey = formatDateKey_(logDate);
 
     if (!dateMap[dateKey]) dateMap[dateKey] = [];
     dateMap[dateKey].push(logs[i]);
@@ -76,7 +73,7 @@ function buildDashboard_v2() {
     var times = [];
 
     dayLogs.forEach(function(log) {
-      var t = Utilities.formatDate(log[0], "Asia/Seoul", "HH:mm");
+      var t = formatTimeKey_(log[0]);
       if (times.indexOf(t) === -1) times.push(t);
     });
 
@@ -93,7 +90,7 @@ function buildDashboard_v2() {
     var logMap = {};
 
     dayLogs.forEach(function(log) {
-      var t = Utilities.formatDate(log[0], "Asia/Seoul", "HH:mm");
+      var t = formatTimeKey_(log[0]);
       var key = t + "_" + String(log[1]).trim() + "_" + String(log[2]).trim();
       logMap[key] = log;
     });
@@ -323,6 +320,31 @@ function getMediaAndProducts_(settings) {
   return { mediaOrder: mediaOrder, activeProducts: activeProducts };
 }
 
+// 설정 시트에서 로그(L~Q열) + 매체 정렬 순서 + 매체·보종 목록을 한 번에 읽어온다.
+// (buildDashboard_v2 전체 실행 시와 필터 변경으로 인한 차트만 갱신할 때 공통으로 사용)
+function loadSettingData_(settingSheet) {
+  var settings = settingSheet.getDataRange().getValues();
+  var lastRow = settingSheet.getLastRow();
+  var logs = settingSheet.getRange(1, 12, lastRow, 6).getValues();
+  var meta = getMediaAndProducts_(settings);
+
+  return { logs: logs, mediaOrder: meta.mediaOrder, activeProducts: meta.activeProducts };
+}
+
+// 시트에 삽입되어 있는 차트를 모두 제거한다. clear()가 차트 객체까지 지우지는 않으므로,
+// 다시 그리기 전에 호출해 중복 삽입을 막는다.
+function removeAllCharts_(sheet) {
+  sheet.getCharts().forEach(function(c) { sheet.removeChart(c); });
+}
+
+function formatDateKey_(date) {
+  return Utilities.formatDate(date, TIMEZONE, "yyyy-MM-dd");
+}
+
+function formatTimeKey_(date) {
+  return Utilities.formatDate(date, TIMEZONE, "HH:mm");
+}
+
 // 대시보드 최상단에 매체/보종 필터 컨트롤과 최근 7일(최종마감 기준) 비용·DB·단가 차트 3개를 그린다.
 // 반환값: 이 영역 다음에 기존 상세 표를 그리기 시작할 행 번호
 function renderTop7DayCharts_(ss, dashboardSheet, logs, mediaOrder, activeProducts, prevMediaFilter, prevProductFilter) {
@@ -382,7 +404,7 @@ function renderTop7DayCharts_(ss, dashboardSheet, logs, mediaOrder, activeProduc
   for (var d = 6; d >= 0; d--) {
     var dt = new Date(today);
     dt.setDate(dt.getDate() - d);
-    last7Dates.push(Utilities.formatDate(dt, "Asia/Seoul", "yyyy-MM-dd"));
+    last7Dates.push(formatDateKey_(dt));
   }
   var last7Set = {};
   last7Dates.forEach(function(dateKey) { last7Set[dateKey] = true; });
@@ -394,10 +416,10 @@ function renderTop7DayCharts_(ss, dashboardSheet, logs, mediaOrder, activeProduc
     var logDate = logs[i][0];
     if (!(logDate instanceof Date)) continue;
 
-    var t = Utilities.formatDate(logDate, "Asia/Seoul", "HH:mm");
+    var t = formatTimeKey_(logDate);
     if (t !== "00:00") continue;
 
-    var dateKey = Utilities.formatDate(logDate, "Asia/Seoul", "yyyy-MM-dd");
+    var dateKey = formatDateKey_(logDate);
     if (!last7Set[dateKey]) continue;
 
     var key = dateKey + "_" + String(logs[i][1]).trim() + "_" + String(logs[i][2]).trim();
@@ -440,61 +462,46 @@ function renderTop7DayCharts_(ss, dashboardSheet, logs, mediaOrder, activeProduc
   helperSheet.hideSheet();
 
   var nCols = header.length;
-  var costStartRow = 1;
-  var dbStartRow = costTable.length + 2;
-  var cpaStartRow = dbStartRow + dbTable.length + 1;
+  var cursorRow = 1;
 
-  helperSheet.getRange(costStartRow, 1, costTable.length, nCols).setValues(costTable);
-  helperSheet.getRange(dbStartRow, 1, dbTable.length, nCols).setValues(dbTable);
-  helperSheet.getRange(cpaStartRow, 1, cpaTable.length, nCols).setValues(cpaTable);
+  var ranges = [costTable, dbTable, cpaTable].map(function(table) {
+    var range = helperSheet.getRange(cursorRow, 1, table.length, nCols);
+    range.setValues(table);
+    cursorRow += table.length + 1; // 표 사이 빈 행 1개
+    return range;
+  });
 
-  var costRange = helperSheet.getRange(costStartRow, 1, costTable.length, nCols);
-  var dbRange = helperSheet.getRange(dbStartRow, 1, dbTable.length, nCols);
-  var cpaRange = helperSheet.getRange(cpaStartRow, 1, cpaTable.length, nCols);
+  var costRange = ranges[0];
+  var dbRange = ranges[1];
+  var cpaRange = ranges[2];
 
   // ---- 차트 3개 삽입 (비용 / DB / 단가, 세로로 쌓음) ----
-  var chartWidth = 900;
-  var chartHeight = 260;
   var suffix = filterSuffix_(mediaFilter, productFilter);
 
-  var costChart = dashboardSheet.newChart()
-    .asLineChart()
-    .addRange(costRange)
-    .setNumHeaders(1)
-    .setOption('title', '최근 7일 비용 추이 (최종마감 기준)' + suffix)
-    .setOption('width', chartWidth)
-    .setOption('height', chartHeight)
-    .setOption('useFirstColumnAsDomain', true)
-    .setPosition(CHART_START_ROW, 1, 0, 0)
-    .build();
+  var chartConfigs = [
+    { range: costRange, title: '최근 7일 비용 추이 (최종마감 기준)' + suffix, anchorRow: CHART_START_ROW },
+    { range: dbRange, title: '최근 7일 DB 추이 (최종마감 기준)' + suffix, anchorRow: CHART_START_ROW + CHART_ROWS_PER_CHART },
+    { range: cpaRange, title: '최근 7일 단가(CPA) 추이 (최종마감 기준)' + suffix, anchorRow: CHART_START_ROW + CHART_ROWS_PER_CHART * 2 }
+  ];
 
-  var dbChart = dashboardSheet.newChart()
-    .asLineChart()
-    .addRange(dbRange)
-    .setNumHeaders(1)
-    .setOption('title', '최근 7일 DB 추이 (최종마감 기준)' + suffix)
-    .setOption('width', chartWidth)
-    .setOption('height', chartHeight)
-    .setOption('useFirstColumnAsDomain', true)
-    .setPosition(CHART_START_ROW + CHART_ROWS_PER_CHART, 1, 0, 0)
-    .build();
-
-  var cpaChart = dashboardSheet.newChart()
-    .asLineChart()
-    .addRange(cpaRange)
-    .setNumHeaders(1)
-    .setOption('title', '최근 7일 단가(CPA) 추이 (최종마감 기준)' + suffix)
-    .setOption('width', chartWidth)
-    .setOption('height', chartHeight)
-    .setOption('useFirstColumnAsDomain', true)
-    .setPosition(CHART_START_ROW + CHART_ROWS_PER_CHART * 2, 1, 0, 0)
-    .build();
-
-  dashboardSheet.insertChart(costChart);
-  dashboardSheet.insertChart(dbChart);
-  dashboardSheet.insertChart(cpaChart);
+  chartConfigs.forEach(function(cfg) {
+    dashboardSheet.insertChart(buildLineChart_(dashboardSheet, cfg.range, cfg.title, cfg.anchorRow));
+  });
 
   return CHART_START_ROW + CHART_ROWS_PER_CHART * 3 + 2; // 이 다음 행부터 기존 상세 표 렌더링
+}
+
+function buildLineChart_(sheet, range, title, anchorRow) {
+  return sheet.newChart()
+    .asLineChart()
+    .addRange(range)
+    .setNumHeaders(1)
+    .setOption('title', title)
+    .setOption('width', CHART_WIDTH)
+    .setOption('height', CHART_HEIGHT)
+    .setOption('useFirstColumnAsDomain', true)
+    .setPosition(anchorRow, 1, 0, 0)
+    .build();
 }
 
 function filterSuffix_(mediaFilter, productFilter) {
@@ -527,13 +534,9 @@ function refreshTop7DayCharts_() {
   var mediaFilter = dashboardSheet.getRange(MEDIA_FILTER_CELL).getValue();
   var productFilter = dashboardSheet.getRange(PRODUCT_FILTER_CELL).getValue();
 
-  var settings = settingSheet.getDataRange().getValues();
-  var lastRow = settingSheet.getLastRow();
-  var logs = settingSheet.getRange(1, 12, lastRow, 6).getValues();
+  var data = loadSettingData_(settingSheet);
 
-  var meta = getMediaAndProducts_(settings);
+  removeAllCharts_(dashboardSheet);
 
-  dashboardSheet.getCharts().forEach(function(c) { dashboardSheet.removeChart(c); });
-
-  renderTop7DayCharts_(ss, dashboardSheet, logs, meta.mediaOrder, meta.activeProducts, mediaFilter, productFilter);
+  renderTop7DayCharts_(ss, dashboardSheet, data.logs, data.mediaOrder, data.activeProducts, mediaFilter, productFilter);
 }
