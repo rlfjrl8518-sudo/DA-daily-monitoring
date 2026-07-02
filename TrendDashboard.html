@@ -100,9 +100,11 @@
 </style>
 </head>
 <body>
-  <h2>최근 <span id="dayCount"></span>일 최종마감 추이</h2>
+  <h2>최종마감 추이</h2>
 
   <div class="filters">
+    <label for="daysInput">최근 일수</label>
+    <input type="number" id="daysInput" min="1" value="14" style="width:60px;">
     <label for="mediaSelect">매체</label>
     <select id="mediaSelect"></select>
     <label for="productSelect">보종</label>
@@ -142,7 +144,9 @@
   var DATA = <?!= dataJson ?>;
   var ALL = "__ALL__";
 
-  document.getElementById('dayCount').textContent = DATA.days.length;
+  var daysInput = document.getElementById('daysInput');
+  daysInput.max = DATA.days.length;
+  daysInput.value = Math.min(DATA.defaultDays || 14, DATA.days.length);
 
   var mediaSelect = document.getElementById('mediaSelect');
   var productSelect = document.getElementById('productSelect');
@@ -190,10 +194,19 @@
     });
   }
 
-  // 선택 조건(매체/보종)에 맞는 날짜별 {cost, db} 합계 배열과, 단일 보종이 선택된 경우의
-  // targetCPA(그 외에는 null)를 계산한다.
+  // 입력창에 지정한 최근 일수만큼(전체 중 뒤쪽 N일) 잘라서 사용할 시작 인덱스를 구한다.
+  function getVisibleStartIndex() {
+    var n = parseInt(daysInput.value, 10);
+    if (!n || n < 1) n = 1;
+    if (n > DATA.days.length) n = DATA.days.length;
+    return DATA.days.length - n;
+  }
+
+  // 선택 조건(매체/보종, 최근 일수)에 맞는 날짜별 {cost, db} 합계 배열과, 단일 보종이
+  // 선택된 경우의 targetCPA(그 외에는 null)를 계산한다.
   function computeSeries() {
-    var days = DATA.days;
+    var startIdx = getVisibleStartIndex();
+    var days = DATA.days.slice(startIdx);
     var totals = days.map(function() { return { cost: 0, db: 0 }; });
     var targetCPA = null;
 
@@ -211,7 +224,7 @@
       }
 
       items.forEach(function(item) {
-        item.byDate.forEach(function(entry, idx) {
+        item.byDate.slice(startIdx).forEach(function(entry, idx) {
           if (!entry) return;
           totals[idx].cost += entry.cost;
           totals[idx].db += entry.db;
@@ -278,7 +291,8 @@
       chartArea: { left: 45, top: 10, right: 10, bottom: 30 },
       colors: ['#4285f4'],
       pointSize: 4,
-      lineWidth: 2
+      lineWidth: 2,
+      curveType: 'function' // 완만한 곡선
     };
 
     new google.visualization.LineChart(document.getElementById('costChart'))
@@ -300,15 +314,26 @@
     drawCharts(rows);
   }
 
+  var chartsReady = false;
+
+  function refreshIfReady() {
+    if (chartsReady) refresh();
+  }
+
   mediaSelect.addEventListener('change', function() {
     rebuildProductOptions();
-    refresh();
+    refreshIfReady();
   });
-  productSelect.addEventListener('change', refresh);
+  productSelect.addEventListener('change', refreshIfReady);
+  daysInput.addEventListener('input', refreshIfReady);
+  daysInput.addEventListener('change', refreshIfReady);
 
   rebuildProductOptions();
   google.charts.load('current', { packages: ['corechart'] });
-  google.charts.setOnLoadCallback(refresh);
+  google.charts.setOnLoadCallback(function() {
+    chartsReady = true;
+    refresh();
+  });
 </script>
 </body>
 </html>

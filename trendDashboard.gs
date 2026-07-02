@@ -1,8 +1,10 @@
-var TREND_DASHBOARD_DAYS = 14; // 추이 대시보드에서 보여줄 최근 일수 (필요하면 이 값만 조정)
+var TREND_DASHBOARD_DEFAULT_DAYS = 14; // 팝업을 열었을 때 기본으로 보여줄 일수
+var TREND_DASHBOARD_MAX_DAYS = 60; // 팝업 안에서 직접 입력해 늘려볼 수 있는 최대 일수
 
 // 최근 N일(조회일 기준, [최종마감] 00:00 데이터)의 매체/보종별 비용·DB·단가 추이를
 // HTML 팝업으로 보여준다. updateDAReport()/updateDAReport_final() 끝에 자동으로 호출되고,
-// 메뉴에서 수동으로도 열어볼 수 있다.
+// 메뉴에서 수동으로도 열어볼 수 있다. 서버에서는 TREND_DASHBOARD_MAX_DAYS만큼 넉넉히 미리
+// 계산해서 보내고, 실제 몇 일치를 볼지는 팝업 안의 입력창에서 즉시(재요청 없이) 조절한다.
 function showRecentTrendDashboard() {
 
   var ss = SpreadsheetApp.getActiveSpreadsheet();
@@ -19,7 +21,7 @@ function showRecentTrendDashboard() {
   var refDate = getTrendDashboardRefDate_(settingSheet);
 
   var days = [];
-  for (var d = TREND_DASHBOARD_DAYS; d >= 1; d--) {
+  for (var d = TREND_DASHBOARD_MAX_DAYS; d >= 1; d--) {
     var dt = new Date(refDate);
     dt.setDate(dt.getDate() - d);
     days.push(Utilities.formatDate(dt, TIMEZONE, "yyyy-MM-dd"));
@@ -69,13 +71,13 @@ function showRecentTrendDashboard() {
     })
     .filter(function(g) { return g.items.length > 0; });
 
-  var payload = { days: days, mediaGroups: mediaGroups };
+  var payload = { days: days, mediaGroups: mediaGroups, defaultDays: TREND_DASHBOARD_DEFAULT_DAYS };
 
   var template = HtmlService.createTemplateFromFile('TrendDashboard');
   template.dataJson = JSON.stringify(payload);
 
   var html = template.evaluate().setWidth(1100).setHeight(750);
-  SpreadsheetApp.getUi().showModalDialog(html, "최근 " + TREND_DASHBOARD_DAYS + "일 추이 대시보드");
+  SpreadsheetApp.getUi().showModalDialog(html, "최종마감 추이 대시보드");
 }
 
 // DA운영설정 시트의 "조회일" 헤더 밑 값을 읽어온다. 값이 없거나 날짜가 아니면 오늘 날짜로 대체한다.
