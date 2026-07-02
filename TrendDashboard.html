@@ -471,9 +471,11 @@
   }
 
   var SERIES_COLORS = ['#4285f4', '#0f9d58', '#db4437', '#f4b400', '#9c27b0', '#00acc1', '#ff7043', '#5c6bc0'];
+  var SINGLE_SERIES_COLORS = { cost: '#4285f4', db: '#0f9d58', cpa: '#db4437' }; // 선이 하나뿐일 때 지표별 구분 색
 
   // 항목별(매체 또는 보종) 시리즈를 한 차트에 여러 선으로 그린다. 시리즈가 하나뿐이면
-  // 범례는 굳이 안 보여준다.
+  // 범례 없이 지표(비용/DB/단가)별로 다른 색을 쓰고, 여러 개면 항목별 색으로 구분하고
+  // 위쪽에 범례를 보여준다.
   function drawCharts(grouped) {
     function buildTable(valueKey) {
       var dt = new google.visualization.DataTable();
@@ -491,17 +493,22 @@
 
     var multi = grouped.series.length > 1;
     var baseOptions = {
-      legend: multi ? { position: 'bottom', textStyle: { fontSize: 10 } } : { position: 'none' },
-      chartArea: { left: 45, top: 10, right: 10, bottom: multi ? 55 : 30 },
+      legend: multi ? { position: 'top', textStyle: { fontSize: 10 } } : { position: 'none' },
+      chartArea: { left: 45, top: multi ? 30 : 10, right: 10, bottom: 30 },
       colors: SERIES_COLORS,
       pointSize: 4,
       lineWidth: 2,
       curveType: 'function' // 완만한 곡선
     };
 
-    new google.visualization.LineChart(document.getElementById('costChart')).draw(buildTable('cost'), baseOptions);
-    new google.visualization.LineChart(document.getElementById('dbChart')).draw(buildTable('db'), baseOptions);
-    new google.visualization.LineChart(document.getElementById('cpaChart')).draw(buildTable('cpa'), baseOptions);
+    function optionsFor(valueKey) {
+      if (multi) return baseOptions;
+      return Object.assign({}, baseOptions, { colors: [SINGLE_SERIES_COLORS[valueKey]] });
+    }
+
+    new google.visualization.LineChart(document.getElementById('costChart')).draw(buildTable('cost'), optionsFor('cost'));
+    new google.visualization.LineChart(document.getElementById('dbChart')).draw(buildTable('db'), optionsFor('db'));
+    new google.visualization.LineChart(document.getElementById('cpaChart')).draw(buildTable('cpa'), optionsFor('cpa'));
   }
 
   var sortOrder = document.getElementById('sortOrder');
