@@ -24,7 +24,7 @@ function getDetailContentBaseRow_() {
 // 그 후 여러 번의 행 삽입/삭제를 거치며 시트 곳곳으로 밀려 남아있을 수 있다. 그 잔재 때문에
 // 스크립트가 일반 텍스트/숫자를 쓰려다가 "데이터 확인 규칙 위반" 오류가 날 수 있으므로,
 // DA운영현황 시트 전체에서 데이터 확인 규칙만 한 번에 제거한다. 문제가 재발하면 다시 실행해도 안전하다.
-function clearAllDataValidationsOnDashboard_() {
+function clearAllDataValidationsOnDashboard() {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   var dashboardSheet = ss.getSheetByName(DASH_SHEET_NAME);
   var lastRow = Math.max(dashboardSheet.getMaxRows(), 1);
