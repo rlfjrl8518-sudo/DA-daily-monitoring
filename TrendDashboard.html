@@ -365,11 +365,19 @@
 
   var DOW_LABELS = ['일', '월', '화', '수', '목', '금', '토'];
 
-  // "yyyy-MM-dd" 문자열을 지역/시간대 영향 없이 요일로 변환한다.
-  function dayOfWeekLabel(dateStr) {
+  // "yyyy-MM-dd" 문자열을 지역/시간대 영향 없이 요일 인덱스(0=일 ... 6=토)로 변환한다.
+  function dayOfWeekIndex(dateStr) {
     var parts = dateStr.split('-');
     var d = new Date(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2]));
-    return DOW_LABELS[d.getDay()];
+    return d.getDay();
+  }
+
+  // 날짜 옆에 표시할 "(요일)"을 만든다. 토요일은 파란색, 일요일은 빨간색으로 강조한다.
+  function dayOfWeekBadge(dateStr) {
+    var idx = dayOfWeekIndex(dateStr);
+    var label = DOW_LABELS[idx];
+    var color = idx === 6 ? '#1a73e8' : (idx === 0 ? '#d93025' : '#5f6368');
+    return '<span style="color:' + color + ';">(' + label + ')</span>';
   }
 
   function statusBadge(row) {
@@ -386,7 +394,7 @@
     rows.forEach(function(row) {
       var tr = document.createElement('tr');
       tr.innerHTML =
-        '<td>' + row.date + ' (' + dayOfWeekLabel(row.date) + ')</td>' +
+        '<td>' + row.date + ' ' + dayOfWeekBadge(row.date) + '</td>' +
         '<td>' + (row.hasData ? row.cost.toLocaleString() : '-') + '</td>' +
         '<td>' + (row.hasData ? row.db.toLocaleString() : '-') + '</td>' +
         '<td>' + (row.hasData ? row.cpa.toLocaleString() : '-') + statusBadge(row) + '</td>';
