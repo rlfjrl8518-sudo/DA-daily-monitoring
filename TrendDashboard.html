@@ -363,6 +363,15 @@
     }).map(function(row) { row.targetCPA = targetCPA; return row; });
   }
 
+  var DOW_LABELS = ['일', '월', '화', '수', '목', '금', '토'];
+
+  // "yyyy-MM-dd" 문자열을 지역/시간대 영향 없이 요일로 변환한다.
+  function dayOfWeekLabel(dateStr) {
+    var parts = dateStr.split('-');
+    var d = new Date(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2]));
+    return DOW_LABELS[d.getDay()];
+  }
+
   function statusBadge(row) {
     if (row.targetCPA === null || row.targetCPA === undefined || !row.hasData) return '';
     if (row.cpa <= row.targetCPA) return '<span class="status status-good">적정</span>';
@@ -377,7 +386,7 @@
     rows.forEach(function(row) {
       var tr = document.createElement('tr');
       tr.innerHTML =
-        '<td>' + row.date + '</td>' +
+        '<td>' + row.date + ' (' + dayOfWeekLabel(row.date) + ')</td>' +
         '<td>' + (row.hasData ? row.cost.toLocaleString() : '-') + '</td>' +
         '<td>' + (row.hasData ? row.db.toLocaleString() : '-') + '</td>' +
         '<td>' + (row.hasData ? row.cpa.toLocaleString() : '-') + statusBadge(row) + '</td>';
