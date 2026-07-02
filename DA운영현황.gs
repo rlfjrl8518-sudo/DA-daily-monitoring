@@ -419,8 +419,8 @@ function renderDateBlock_(dashboardSheet, startRow, dateKey, dayLogs, mediaOrder
   // 숫자 서식 적용 (C열부터)
   dashboardSheet.getRange(row, 3, 1, totalRow.length - 2).setNumberFormat("#,##0");
 
-  // 이 표 전체에 옅은 회색 격자 테두리를 그린다.
-  dashboardSheet.getRange(startRow, 1, row - startRow + 1, header1.length)
+  // 날짜 표시 행(제목 줄)은 제외하고, 그 아래 실제 표 부분에만 옅은 회색 격자 테두리를 그린다.
+  dashboardSheet.getRange(startRow + 1, 1, row - startRow, header1.length)
     .setBorder(true, true, true, true, true, true, "#D9D9D9", SpreadsheetApp.BorderStyle.SOLID);
 
   return row; // 이 블록의 마지막 행(전체합계 행)
