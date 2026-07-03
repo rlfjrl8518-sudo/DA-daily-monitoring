@@ -1,61 +1,23 @@
 var DASH_SHEET_NAME = "DA운영현황";
 var SETTING_SHEET_NAME = "DA운영설정";
-var BLOCK_STATE_PROPERTY_KEY = "DA_BLOCK_STATE";
 var TIMEZONE = "Asia/Seoul";
-var RECHECK_WINDOW_DAYS = 32; // 재검증 시 다시 그릴 최근 일수 (기존 33일 기준과 동일)
 
 // DA운영현황 시트 맨 위 3행은 추이 대시보드 팝업을 여는 버튼(그림)을 위해 항상 비워둔다.
 // 스크립트는 이 행들을 절대 지우거나 쓰지 않고, 날짜별 상세 블록은 항상 4행부터 쌓인다.
 var DASHBOARD_TOP_RESERVED_ROWS = 3;
 var DASHBOARD_DETAIL_BASE_ROW = DASHBOARD_TOP_RESERVED_ROWS + 1;
-var TOP_BUTTON_ROWS_MIGRATION_FLAG_KEY = "DA_TOP_BUTTON_ROWS_RESERVED";
 
-// 일회성 마이그레이션: 상단 버튼용 3행을 처음 확보할 때 딱 한 번만 실행한다. 이미 1행부터
-// 쌓여있던 기존 날짜별 블록 전체를 3행만큼 아래로 밀어내고(insertRowsBefore, 기존 내용은
-// 그대로 유지됨), 블록 상태의 시작/끝 행 번호도 같이 보정한다. 이미 실행됐으면 아무 것도
-// 하지 않고 넘어간다.
-function migrateReserveTopButtonRows() {
-  var props = PropertiesService.getDocumentProperties();
-
-  if (props.getProperty(TOP_BUTTON_ROWS_MIGRATION_FLAG_KEY) === "true") {
-    Logger.log("이미 상단 버튼용 행 확보가 완료된 상태입니다. 다시 실행할 필요 없습니다.");
-    return;
-  }
-
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
-  var dashboardSheet = ss.getSheetByName(DASH_SHEET_NAME);
-
-  var state = loadBlockState_();
-  var shift = DASHBOARD_TOP_RESERVED_ROWS;
-
-  if (state.archiveBoundaryEndRow > 0 || state.activeEntries.length > 0) {
-    dashboardSheet.insertRowsBefore(1, shift);
-    dashboardSheet.getRange(1, 1, shift, Math.max(dashboardSheet.getMaxColumns(), 20)).clearDataValidations();
-
-    var newArchiveBoundaryEndRow = state.archiveBoundaryEndRow > 0 ? state.archiveBoundaryEndRow + shift : 0;
-    var newActiveEntries = state.activeEntries.map(function(e) {
-      return { dateKey: e.dateKey, startRow: e.startRow + shift, endRow: e.endRow + shift };
-    });
-
-    saveBlockState_({ archiveBoundaryEndRow: newArchiveBoundaryEndRow, activeEntries: newActiveEntries });
-    Logger.log("마이그레이션 완료: 기존 블록을 " + shift + "행만큼 아래로 이동했습니다.");
-  } else {
-    Logger.log("밀어낼 기존 블록이 없어 행 이동 없이 넘어갑니다.");
-  }
-
-  props.setProperty(TOP_BUTTON_ROWS_MIGRATION_FLAG_KEY, "true");
-}
-
-// DA운영설정 시트의 헤더(예: "조회일", "전일") 밑 2행에 있는 날짜 값을 기준으로,
-// 그 날짜 하나의 블록만 다시 그린다. saveMonitoringSnapshot()/saveMonitoringSnapshot_final()이
-// 로그를 적재한 뒤 어느 날짜를 다시 그려야 하는지는 항상 이 헤더 셀 값이 결정하므로,
-// 시스템 시계로 "오늘"/"어제"를 추측하지 않는다 (운영자가 조회일/전일을 직접 입력·변경함).
-// 다른 날짜(예: 월요일에 금/토/일을 순서대로)를 처리해야 할 때는 운영자가 헤더 셀 값을 바꿔가며
-// 이 함수를 여러 번 호출하면 되므로, 요일 판단 로직이 따로 필요 없다.
-// 주의: upsertDateBlock_는 "가장 최근(맨 아래) 블록"을 갱신하는 상황에서만 안전하다. 조회일/전일을
-// 이미 지나간 지 오래된 과거 날짜(맨 아래가 아닌 중간 블록)로 설정해서 정정하는 용도로는 쓰지 말고,
-// 그런 경우엔 rebuildRecentDashboard_v2()로 최근 32일 구간을 통째로 다시 그릴 것.
-function renderDashboardForHeaderDate_(headerName) {
+// DA운영설정 시트 로그(L~Q열) 전체를 날짜별로 묶어서, 대시보드 상세 영역(4행부터 시트 끝까지)을
+// 통째로 지우고 처음부터 다시 그린다.
+//
+// 예전에는 최근 32일만 다시 그리고 그보다 오래된 블록은 "아카이브"로 남겨 손대지 않는 방식(부분
+// 갱신 + Document Properties에 블록 위치 상태 저장)을 썼는데, 하루 안에서도 활성 매체/보종 구성이
+// 바뀌면 같은 날짜 블록의 행 수가 달라질 수 있어 부분 갱신 시 아래쪽에 있는 다른 블록을 침범하거나
+// 위치가 밀리고, 다음 갱신 때 그 어긋난 상태가 그대로 누적돼 중복 표시로 이어지는 문제가 있었다.
+// 매번 로그 전체를 기준으로 처음부터 다시 그리면 위치 추적 상태를 따로 저장·보정할 필요가 없어
+// 이런 문제가 근본적으로 사라진다. (로그가 아주 많아지면 매번 전체를 다시 그리는 비용이 커질 수
+// 있으니, 그런 상황이 되면 다시 구간 분할을 고려한다.)
+function renderFullDashboard_() {
 
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   var dashboardSheet = ss.getSheetByName(DASH_SHEET_NAME);
@@ -68,52 +30,6 @@ function renderDashboardForHeaderDate_(headerName) {
   var meta = getMediaAndProducts_(settings);
   var mediaOrder = meta.mediaOrder;
   var activeProducts = meta.activeProducts;
-
-  var headerRow = settingSheet.getRange(1, 1, 1, settingSheet.getLastColumn()).getValues()[0];
-  var targetDateCol = headerRow.indexOf(headerName);
-
-  if (targetDateCol === -1) {
-    throw new Error("DA운영설정 시트에서 '" + headerName + "' 헤더를 찾을 수 없습니다.");
-  }
-
-  var targetDate = settingSheet.getRange(2, targetDateCol + 1).getValue();
-  if (!(targetDate instanceof Date)) targetDate = new Date();
-
-  var dateKey = Utilities.formatDate(targetDate, TIMEZONE, "yyyy-MM-dd");
-
-  var dayLogs = [];
-  for (var i = 1; i < logs.length; i++) {
-    var logDate = logs[i][0];
-    if (!(logDate instanceof Date)) continue;
-
-    if (Utilities.formatDate(logDate, TIMEZONE, "yyyy-MM-dd") === dateKey) {
-      dayLogs.push(logs[i]);
-    }
-  }
-
-  upsertDateBlock_(dashboardSheet, dateKey, dayLogs, mediaOrder, activeProducts);
-
-  applyColumnWidths_(dashboardSheet);
-}
-
-// 최근 32일 구간 전체만 다시 그린다 (과거 로그가 수정됐을 때 대시보드에 반영하기 위함).
-// 32일보다 오래된 블록(아카이브)은 그대로 두고 절대 다시 쓰지 않는다.
-function rebuildRecentDashboard_v2() {
-
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
-  var dashboardSheet = ss.getSheetByName(DASH_SHEET_NAME);
-  var settingSheet = ss.getSheetByName(SETTING_SHEET_NAME);
-
-  var settings = settingSheet.getDataRange().getValues();
-  var lastSettingRow = settingSheet.getLastRow();
-  var logs = settingSheet.getRange(1, 12, lastSettingRow, 6).getValues();
-
-  var meta = getMediaAndProducts_(settings);
-  var mediaOrder = meta.mediaOrder;
-  var activeProducts = meta.activeProducts;
-
-  var cutoff = new Date();
-  cutoff.setDate(cutoff.getDate() - RECHECK_WINDOW_DAYS);
 
   var dateMap = {};
 
@@ -121,96 +37,32 @@ function rebuildRecentDashboard_v2() {
     var logDate = logs[i][0];
     if (!(logDate instanceof Date)) continue;
 
-    var logDateOnly = new Date(Utilities.formatDate(logDate, TIMEZONE, "yyyy-MM-dd"));
-    if (logDateOnly < cutoff) continue;
-
     var dateKey = Utilities.formatDate(logDate, TIMEZONE, "yyyy-MM-dd");
     if (!dateMap[dateKey]) dateMap[dateKey] = [];
     dateMap[dateKey].push(logs[i]);
   }
 
-  var windowDateKeys = Object.keys(dateMap).sort(); // 오래된 -> 최신
-
-  // 이전에 활성 구간이었지만 이번 재검증에서 윈도우 밖으로 밀려난(=32일보다 오래된) 항목은
-  // 시트 내용은 그대로 두고, 그 경계 행 번호만 기억해서 활성 구간 목록에서 제외한다.
-  var state = loadBlockState_();
-  var archiveBoundaryEndRow = state.archiveBoundaryEndRow;
-
-  state.activeEntries.forEach(function(e) {
-    if (windowDateKeys.indexOf(e.dateKey) === -1 && e.endRow > archiveBoundaryEndRow) {
-      archiveBoundaryEndRow = e.endRow;
-    }
-  });
-
-  // 재검증 구간은 아카이브 경계 바로 다음 행부터 시작해서, 시트 끝까지를 통째로 지우고 다시 그린다.
-  var startRow = archiveBoundaryEndRow > 0 ? archiveBoundaryEndRow + 3 : DASHBOARD_DETAIL_BASE_ROW;
+  var dateKeys = Object.keys(dateMap).sort(); // 오래된 -> 최신
 
   var lastRowNum = dashboardSheet.getLastRow();
-  if (lastRowNum >= startRow) {
+  if (lastRowNum >= DASHBOARD_DETAIL_BASE_ROW) {
     var maxCol = dashboardSheet.getMaxColumns();
-    dashboardSheet.getRange(startRow, 1, lastRowNum - startRow + 1, maxCol).clear();
+    dashboardSheet.getRange(DASHBOARD_DETAIL_BASE_ROW, 1, lastRowNum - DASHBOARD_DETAIL_BASE_ROW + 1, maxCol).clear();
   }
 
-  var row = startRow;
-  var newActiveEntries = [];
+  var row = DASHBOARD_DETAIL_BASE_ROW;
 
-  windowDateKeys.forEach(function(dateKey) {
+  dateKeys.forEach(function(dateKey) {
     var endRow = renderDateBlock_(dashboardSheet, row, dateKey, dateMap[dateKey], mediaOrder, activeProducts);
 
     dashboardSheet.getRange(row, 1, endRow - row + 1, 1)
       .setFontWeight("bold")
       .setHorizontalAlignment("center");
 
-    newActiveEntries.push({ dateKey: dateKey, startRow: row, endRow: endRow });
     row = endRow + 3;
   });
 
-  saveBlockState_({ archiveBoundaryEndRow: archiveBoundaryEndRow, activeEntries: newActiveEntries });
-
   applyColumnWidths_(dashboardSheet);
-}
-
-// 특정 날짜 하나의 블록을 시트에 새로 쓰거나(신규) 같은 자리에 다시 그린다(갱신).
-// 활성 구간에 없는 날짜(신규)는 마지막 블록 바로 아래에 추가되고, 있는 날짜(갱신)는
-// 기존 위치를 지우고 같은 자리에 다시 그린다. 항상 가장 최근 날짜(맨 아래)에서만
-// 호출되므로 뒤에 있는 다른 블록을 밀어내거나 침범할 일이 없다.
-function upsertDateBlock_(dashboardSheet, dateKey, dayLogs, mediaOrder, activeProducts) {
-  if (!dayLogs || dayLogs.length === 0) return;
-
-  var state = loadBlockState_();
-  var activeEntries = state.activeEntries;
-
-  var existingIdx = -1;
-  for (var i = 0; i < activeEntries.length; i++) {
-    if (activeEntries[i].dateKey === dateKey) { existingIdx = i; break; }
-  }
-
-  var startRow;
-
-  if (existingIdx !== -1) {
-    var existing = activeEntries[existingIdx];
-    startRow = existing.startRow;
-    var maxCol = dashboardSheet.getMaxColumns();
-    dashboardSheet.getRange(startRow, 1, existing.endRow - startRow + 1, maxCol).clear();
-  } else if (activeEntries.length > 0) {
-    startRow = activeEntries[activeEntries.length - 1].endRow + 3;
-  } else {
-    startRow = state.archiveBoundaryEndRow > 0 ? state.archiveBoundaryEndRow + 3 : DASHBOARD_DETAIL_BASE_ROW;
-  }
-
-  var endRow = renderDateBlock_(dashboardSheet, startRow, dateKey, dayLogs, mediaOrder, activeProducts);
-
-  dashboardSheet.getRange(startRow, 1, endRow - startRow + 1, 1)
-    .setFontWeight("bold")
-    .setHorizontalAlignment("center");
-
-  if (existingIdx !== -1) {
-    activeEntries[existingIdx].endRow = endRow;
-  } else {
-    activeEntries.push({ dateKey: dateKey, startRow: startRow, endRow: endRow });
-  }
-
-  saveBlockState_({ archiveBoundaryEndRow: state.archiveBoundaryEndRow, activeEntries: activeEntries });
 }
 
 // 날짜 하나에 대한 상세 표(날짜 헤더 + 시간대별 매체/보종 비용·DB·단가 + 소계 + 전체합계)를
@@ -468,28 +320,4 @@ function applyColumnWidths_(dashboardSheet) {
   if (lastCol >= 3) {
     dashboardSheet.setColumnWidths(3, lastCol - 2, 80);
   }
-}
-
-// ---- 블록 상태 저장 (어떤 날짜가 대시보드 시트 몇 번째 행에 있는지) ----
-// 시트를 새로 만들지 않고, 스프레드시트에 종속된 Document Properties에 JSON으로 저장한다.
-// 32일보다 오래된 날짜는 개별 항목으로 쌓아두지 않고 "여기까지가 아카이브"라는 경계
-// 행 번호(archiveBoundaryEndRow) 하나로만 기억하므로, 저장 용량이 시간이 지나도 늘어나지 않는다.
-
-function loadBlockState_() {
-  var raw = PropertiesService.getDocumentProperties().getProperty(BLOCK_STATE_PROPERTY_KEY);
-  if (!raw) return { archiveBoundaryEndRow: 0, activeEntries: [] };
-
-  try {
-    var parsed = JSON.parse(raw);
-    return {
-      archiveBoundaryEndRow: Number(parsed.archiveBoundaryEndRow) || 0,
-      activeEntries: parsed.activeEntries || []
-    };
-  } catch (e) {
-    return { archiveBoundaryEndRow: 0, activeEntries: [] };
-  }
-}
-
-function saveBlockState_(state) {
-  PropertiesService.getDocumentProperties().setProperty(BLOCK_STATE_PROPERTY_KEY, JSON.stringify(state));
 }
