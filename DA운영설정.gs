@@ -212,7 +212,7 @@ function saveMonitoringSnapshot_final() {
 // (DA운영현황 시트 상단에 별도로 놓은 버튼(그림)에서 showRecentTrendDashboard를 직접 호출해서 연다).
 function updateDAReport() {
   saveMonitoringSnapshot();
-  renderFullDashboard_();
+  renderFullDashboard();
 }
 
 // 전일마감 버튼: DB_RAW 기준으로 "전일" 최종마감 스냅샷을 로그에 적재(기존 00:00 행 교체)하고,
@@ -221,7 +221,7 @@ function updateDAReport() {
 // 자동으로 뜨지 않는다.
 function updateDAReport_final() {
   saveMonitoringSnapshot_final();
-  renderFullDashboard_();
+  renderFullDashboard();
 }
 
 function onOpen() {
@@ -229,7 +229,7 @@ function onOpen() {
     .createMenu('DA 대시보드')
     .addItem('당일 현황 업데이트', 'updateDAReport')
     .addItem('전일 마감 확인', 'updateDAReport_final')
-    .addItem('전체 기간 재검증 (과거 로그 수정 반영)', 'renderFullDashboard_')
+    .addItem('전체 기간 재검증 (과거 로그 수정 반영)', 'renderFullDashboard')
     .addItem('최근 ' + TREND_DASHBOARD_DAYS + '일 추이 대시보드 보기', 'showRecentTrendDashboard')
     .addToUi();
 }

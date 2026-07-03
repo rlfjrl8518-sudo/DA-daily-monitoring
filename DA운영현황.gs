@@ -17,7 +17,7 @@ var DASHBOARD_DETAIL_BASE_ROW = DASHBOARD_TOP_RESERVED_ROWS + 1;
 // 매번 로그 전체를 기준으로 처음부터 다시 그리면 위치 추적 상태를 따로 저장·보정할 필요가 없어
 // 이런 문제가 근본적으로 사라진다. (로그가 아주 많아지면 매번 전체를 다시 그리는 비용이 커질 수
 // 있으니, 그런 상황이 되면 다시 구간 분할을 고려한다.)
-function renderFullDashboard_() {
+function renderFullDashboard() {
 
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   var dashboardSheet = ss.getSheetByName(DASH_SHEET_NAME);
