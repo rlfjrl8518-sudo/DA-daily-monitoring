@@ -224,6 +224,65 @@ function updateDAReport_final() {
   renderFullDashboard();
 }
 
+// 조정사항 인덱스(매체별 그룹(보종)별 조정 기록)를 DA운영설정 시트 안에 별도 컬럼으로 마련한다.
+// 기존에 쓰이고 있는 마지막 컬럼에서 한 칸 띄워 새로 배치하므로 "조회일"/"전일" 같은 기존
+// 헤더 위치와 겹치지 않는다. 헤더가 이미 있으면(재실행해도) 아무 것도 하지 않는다.
+function setupAdjustmentLogColumns() {
+
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var settingSheet = ss.getSheetByName(SETTING_SHEET_NAME);
+
+  var headerRow = settingSheet.getRange(1, 1, 1, settingSheet.getLastColumn()).getValues()[0];
+
+  if (headerRow.indexOf("조정일자") !== -1) {
+    Logger.log("조정사항 인덱스가 이미 설정되어 있습니다.");
+    return;
+  }
+
+  var startCol = settingSheet.getLastColumn() + 2; // 버퍼 1칸
+  var headers = ["조정일자", "조정시간", "매체", "그룹", "카테고리", "세부내용"];
+
+  settingSheet.getRange(1, startCol, 1, headers.length)
+    .setValues([headers])
+    .setFontWeight("bold");
+
+  // 카테고리/시간 목록은 하드코딩된 유효성 검사가 아니라 시트 위 참조 범위로 두어서,
+  // 나중에 사용자가 이 범위 안의 값만 고쳐도(늘리거나 줄여도) 드롭다운에 바로 반영되게 한다.
+  var categories = ["예산 상향", "예산 하향", "입찰가 상향", "입찰가 하향", "타겟팅 추가", "타겟팅 제외", "소재 추가", "소재 제외", "기타"];
+  var times = [];
+  for (var h = 8; h <= 22; h++) {
+    times.push((h < 10 ? "0" + h : h) + ":00");
+  }
+
+  var catListCol = startCol + headers.length + 1; // 버퍼 1칸 두고 우측에 배치
+  var timeListCol = catListCol + 2; // 카테고리 목록에서 버퍼 1칸 두고 그 옆에 배치
+
+  settingSheet.getRange(1, catListCol).setValue("카테고리 목록(수정 가능)").setFontWeight("bold");
+  settingSheet.getRange(2, catListCol, categories.length, 1)
+    .setValues(categories.map(function(c) { return [c]; }));
+
+  settingSheet.getRange(1, timeListCol).setValue("시간 목록(수정 가능)").setFontWeight("bold");
+  settingSheet.getRange(2, timeListCol, times.length, 1)
+    .setValues(times.map(function(t) { return [t]; }))
+    .setNumberFormat("@"); // 시간 값이 아니라 "14:00" 같은 문자열 그대로 저장/표시
+
+  var timeCol = startCol + 1; // headers 배열에서 "조정시간"의 위치(0-based 1)
+  var timeRule = SpreadsheetApp.newDataValidation()
+    .requireValueInRange(settingSheet.getRange(2, timeListCol, times.length, 1), true)
+    .setAllowInvalid(true)
+    .build();
+  settingSheet.getRange(2, timeCol, 2000, 1).setDataValidation(timeRule).setNumberFormat("@");
+
+  var categoryCol = startCol + 4; // headers 배열에서 "카테고리"의 위치(0-based 4)
+  var catRule = SpreadsheetApp.newDataValidation()
+    .requireValueInRange(settingSheet.getRange(2, catListCol, categories.length, 1), true)
+    .setAllowInvalid(true)
+    .build();
+  settingSheet.getRange(2, categoryCol, 2000, 1).setDataValidation(catRule);
+
+  Logger.log("조정사항 인덱스 컬럼을 " + startCol + "번째 컬럼부터 설정했습니다.");
+}
+
 function onOpen() {
   SpreadsheetApp.getUi()
     .createMenu('DA 대시보드')
@@ -231,5 +290,7 @@ function onOpen() {
     .addItem('전일 마감 확인', 'updateDAReport_final')
     .addItem('전체 기간 재검증 (과거 로그 수정 반영)', 'renderFullDashboard')
     .addItem('최근 ' + TREND_DASHBOARD_DAYS + '일 추이 대시보드 보기', 'showRecentTrendDashboard')
+    .addSeparator()
+    .addItem('조정사항 인덱스 설정 (최초 1회)', 'setupAdjustmentLogColumns')
     .addToUi();
 }
