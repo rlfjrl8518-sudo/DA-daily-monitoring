@@ -106,7 +106,12 @@
   .msel-btn {
     cursor: pointer;
     min-width: 90px;
+    max-width: 220px;
     text-align: left;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    vertical-align: middle;
   }
   .msel-btn:after {
     content: "▾";
@@ -364,9 +369,23 @@
     var selected = {};
     var onChangeCb = null;
 
+    // 선택된 항목이 없으면 "전체", 있으면 실제 이름을 보여준다(개수만 표시하면 뭘 골랐는지
+    // 다시 열어봐야 알 수 있어서). 2개까지는 이름을 그대로 나열하고, 그 이상이면 앞 2개 + "외
+    // N개"로 줄여서 버튼이 너무 길어지지 않게 하되, title(마우스 오버 툴팁)에는 전체 목록을
+    // 넣어 잘린 나머지도 바로 확인할 수 있게 한다.
     function updateButtonLabel() {
       var keys = Object.keys(selected);
-      btn.textContent = keys.length === 0 ? allLabel : (keys.length + '개 선택');
+
+      if (keys.length === 0) {
+        btn.textContent = allLabel;
+        btn.title = '';
+        return;
+      }
+
+      btn.title = keys.join(', ');
+      btn.textContent = keys.length <= 2
+        ? keys.join(', ')
+        : (keys.slice(0, 2).join(', ') + ' 외 ' + (keys.length - 2) + '개');
     }
 
     function setOptions(values) {
