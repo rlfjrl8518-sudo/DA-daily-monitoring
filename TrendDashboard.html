@@ -734,6 +734,16 @@
     return found;
   }
 
+  // 시간대별 현황 탭에서 마커를 붙일 위치를 찾는다. baselineSnapshotTime과 달리, 조정 시각보다
+  // 이른 스냅샷이 그 날 하나도 없어도(예: 그 날 첫 당일현황 클릭이 조정보다 늦은 경우) null을
+  // 반환하지 않고 그 날의 첫 스냅샷에 붙여서 최소한 대략적인 위치는 보여준다. 전/후 수치 계산
+  // (splitDaySnapshots)에는 쓰지 않고 오직 화면 표시용으로만 쓴다.
+  function markerSnapshotTime(snapshots, time) {
+    var baseline = baselineSnapshotTime(snapshots, time);
+    if (baseline) return baseline;
+    return snapshots.length ? snapshots[0].time : null;
+  }
+
   // 하루치 스냅샷을 조정 시각 기준으로 "조정 전"(baseline까지 누적)과 "조정 후"(baseline부터
   // 그 날 마지막 스냅샷까지의 증분)로 나눈다. 조정 전/후를 가를 스냅샷이 부족하면(예: 그 날
   // 당일현황을 한 번도 안 눌렀거나, 조정 이후로 아직 한 번도 안 눌렀으면) hasBefore/hasAfter가
@@ -949,10 +959,12 @@
       var cpa = s.db > 0 ? Math.round(s.cost / s.db) : 0;
       var label = s.time === '00:00' ? '[최종마감]' : s.time;
 
-      var marks = adjsOnDate.filter(function(a) { return baselineSnapshotTime(snaps, a.time) === s.time; });
+      var marks = adjsOnDate.filter(function(a) { return markerSnapshotTime(snaps, a.time) === s.time; });
       var mark = marks.length ? (marks.length > 1 ? (marks.length + '건') : marks[0].category) : null;
       var detail = marks.length ? marks.map(function(a) {
-        return a.time + ' ' + a.category + (a.detail ? ('(' + a.detail + ')') : '');
+        var beforeFirst = !baselineSnapshotTime(snaps, a.time);
+        return a.time + ' ' + a.category + (a.detail ? ('(' + a.detail + ')') : '') +
+          (beforeFirst ? ' (이 시점 이전 조정, 그 날 첫 스냅샷에 표시)' : '');
       }).join('\n') : null;
 
       dt.addRow([label, cpa, mark, detail]);
@@ -978,22 +990,24 @@
       return;
     }
 
-    var byBaseline = {};
+    var byMarker = {};
     adjsOnDate.forEach(function(a) {
-      var t = baselineSnapshotTime(snaps, a.time);
+      var t = markerSnapshotTime(snaps, a.time);
       if (!t) return;
-      if (!byBaseline[t]) byBaseline[t] = [];
-      byBaseline[t].push(a);
+      if (!byMarker[t]) byMarker[t] = [];
+      byMarker[t].push(a);
     });
 
     snaps.forEach(function(s) {
       var tr = document.createElement('tr');
       var label = s.time === '00:00' ? '[최종마감]' : s.time;
       var cpa = s.db > 0 ? Math.round(s.cost / s.db) : 0;
-      var marks = byBaseline[s.time];
+      var marks = byMarker[s.time];
       var markCell = marks
         ? marks.map(function(a) {
-            return '◀ ' + a.time + ' ' + a.category + (a.detail ? ('(' + a.detail + ')') : '');
+            var beforeFirst = !baselineSnapshotTime(snaps, a.time);
+            return '◀ ' + a.time + ' ' + a.category + (a.detail ? ('(' + a.detail + ')') : '') +
+              (beforeFirst ? ' (이 시점 이전 조정)' : '');
           }).join('<br>')
         : '';
 

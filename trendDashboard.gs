@@ -153,8 +153,10 @@ function buildDaySnapshots_(logs, days) {
 
 // setupAdjustmentLogColumns()가 마련한 조정사항 인덱스(조정일자/조정시간/매체/보종/카테고리/
 // 세부내용)를 읽어온다. 아직 설정 전이라 헤더가 없으면 빈 배열을 반환한다(추이 대시보드는
-// 그대로 동작). 조정시간은 드롭다운으로 "14:00" 같은 문자열을 고르게 돼 있지만, 혹시 시트가
-// 이를 시간 값(Date)으로 자동 인식해버린 경우도 대비해 둘 다 처리한다.
+// 그대로 동작). 조정일자만 실제 Date 값이 필요해서 getValues()로 읽고, 나머지(조정시간/매체/
+// 보종/카테고리/세부내용)는 getDisplayValues()로 읽는다 — 예를 들어 "10%"처럼 타이핑하면
+// 시트가 자동으로 숫자(0.1, 퍼센트 서식)로 바꿔버리는데, getValues()로 읽으면 "0.1"이 되지만
+// getDisplayValues()는 셀에 실제 보이는 그대로("10%")를 돌려주므로 이 문제를 피할 수 있다.
 function getAdjustmentLog_(settingSheet) {
 
   var headerRow = settingSheet.getRange(1, 1, 1, settingSheet.getLastColumn()).getValues()[0];
@@ -164,26 +166,26 @@ function getAdjustmentLog_(settingSheet) {
   var lastRow = settingSheet.getLastRow();
   if (lastRow < 2) return [];
 
-  var data = settingSheet.getRange(2, col + 1, lastRow - 1, 6).getValues();
+  var range = settingSheet.getRange(2, col + 1, lastRow - 1, 6);
+  var dateValues = range.getValues();
+  var displayValues = range.getDisplayValues();
   var records = [];
 
-  data.forEach(function(row) {
+  dateValues.forEach(function(row, i) {
     var dateCell = row[0];
     if (!(dateCell instanceof Date)) return;
 
-    var timeCell = row[1];
-    var timeStr = (timeCell instanceof Date)
-      ? Utilities.formatDate(timeCell, TIMEZONE, "HH:mm")
-      : String(timeCell).trim();
+    var disp = displayValues[i];
+    var timeStr = String(disp[1]).trim();
     if (!timeStr) return; // 조정시간이 비어 있으면 전/후를 가를 기준이 없으므로 건너뛴다.
 
     records.push({
       date: Utilities.formatDate(dateCell, TIMEZONE, "yyyy-MM-dd"),
       time: timeStr,
-      media: String(row[2]).trim(),
-      product: String(row[3]).trim(),
-      category: String(row[4]).trim(),
-      detail: String(row[5]).trim()
+      media: String(disp[2]).trim(),
+      product: String(disp[3]).trim(),
+      category: String(disp[4]).trim(),
+      detail: String(disp[5]).trim()
     });
   });
 

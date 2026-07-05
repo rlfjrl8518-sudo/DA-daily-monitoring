@@ -280,6 +280,12 @@ function setupAdjustmentLogColumns() {
     .build();
   settingSheet.getRange(2, categoryCol, 2000, 1).setDataValidation(catRule);
 
+  // 세부내용은 "10%"처럼 숫자+기호로 보이는 값도 자주 들어가는데, 서식을 안 정해두면 시트가
+  // 이를 숫자(0.1, 퍼센트 서식)로 자동 변환해버려 나중에 읽을 때 "10%"가 아니라 "0.1"로
+  // 보이는 문제가 있었다. 텍스트 서식으로 고정해 애초에 자동 변환이 안 일어나게 한다.
+  var detailCol = startCol + 5; // headers 배열에서 "세부내용"의 위치(0-based 5)
+  settingSheet.getRange(2, detailCol, 2000, 1).setNumberFormat("@");
+
   Logger.log("조정사항 인덱스 컬럼을 " + startCol + "번째 컬럼부터 설정했습니다.");
 }
 
