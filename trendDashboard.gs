@@ -151,7 +151,7 @@ function buildDaySnapshots_(logs, days) {
   return result;
 }
 
-// setupAdjustmentLogColumns()가 마련한 조정사항 인덱스(조정일자/조정시간/매체/그룹/카테고리/
+// setupAdjustmentLogColumns()가 마련한 조정사항 인덱스(조정일자/조정시간/매체/보종/카테고리/
 // 세부내용)를 읽어온다. 아직 설정 전이라 헤더가 없으면 빈 배열을 반환한다(추이 대시보드는
 // 그대로 동작). 조정시간은 드롭다운으로 "14:00" 같은 문자열을 고르게 돼 있지만, 혹시 시트가
 // 이를 시간 값(Date)으로 자동 인식해버린 경우도 대비해 둘 다 처리한다.
@@ -181,7 +181,7 @@ function getAdjustmentLog_(settingSheet) {
       date: Utilities.formatDate(dateCell, TIMEZONE, "yyyy-MM-dd"),
       time: timeStr,
       media: String(row[2]).trim(),
-      group: String(row[3]).trim(),
+      product: String(row[3]).trim(),
       category: String(row[4]).trim(),
       detail: String(row[5]).trim()
     });

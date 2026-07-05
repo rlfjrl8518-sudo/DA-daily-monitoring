@@ -224,7 +224,7 @@ function updateDAReport_final() {
   renderFullDashboard();
 }
 
-// 조정사항 인덱스(매체별 그룹(보종)별 조정 기록)를 DA운영설정 시트 안에 별도 컬럼으로 마련한다.
+// 조정사항 인덱스(매체별 보종별 조정 기록)를 DA운영설정 시트 안에 별도 컬럼으로 마련한다.
 // 기존에 쓰이고 있는 마지막 컬럼에서 한 칸 띄워 새로 배치하므로 "조회일"/"전일" 같은 기존
 // 헤더 위치와 겹치지 않는다. 헤더가 이미 있으면(재실행해도) 아무 것도 하지 않는다.
 function setupAdjustmentLogColumns() {
@@ -240,7 +240,7 @@ function setupAdjustmentLogColumns() {
   }
 
   var startCol = settingSheet.getLastColumn() + 2; // 버퍼 1칸
-  var headers = ["조정일자", "조정시간", "매체", "그룹", "카테고리", "세부내용"];
+  var headers = ["조정일자", "조정시간", "매체", "보종", "카테고리", "세부내용"];
 
   settingSheet.getRange(1, startCol, 1, headers.length)
     .setValues([headers])
