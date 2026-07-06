@@ -270,8 +270,25 @@ function renderDateBlock_(dashboardSheet, startRow, dateKey, dayLogs, mediaOrder
             cpaRange.mergeVertically();
           }
 
-          costRange.setValue(totalCost).setVerticalAlignment("middle").setHorizontalAlignment("center").setNumberFormat("#,##0");
-          cpaRange.setValue(totalCpa).setVerticalAlignment("middle").setHorizontalAlignment("center").setNumberFormat("#,##0");
+          costRange.setValue(totalCost).setVerticalAlignment("middle").setHorizontalAlignment("right").setNumberFormat("#,##0");
+          cpaRange.setValue(totalCpa).setVerticalAlignment("middle").setHorizontalAlignment("right").setNumberFormat("#,##0");
+
+          // 보종별 행 루프에서는 이 시점에 비용/단가가 아직 비어 있어(위쪽 참고) 목표CPA 배경색을
+          // 못 칠했으므로, 실제 값이 채워진 지금 여기서 매체 전체 CPA 기준으로 칠한다. 보종마다
+          // 목표CPA가 다를 수 있지만 대표로 첫 보종의 목표CPA를 기준으로 삼는다.
+          if (totalCpa > 0 && mediaRows.length > 0) {
+            var catalogTargetCPA = mediaRows[0].targetCPA;
+
+            if (catalogTargetCPA <= 0) {
+              // 목표CPA가 없으면 색칠하지 않는다.
+            } else if (totalCpa <= catalogTargetCPA) {
+              cpaRange.setBackground("#B6D7A8");
+            } else if (totalCpa <= catalogTargetCPA * 1.2) {
+              cpaRange.setBackground("#FFD966");
+            } else {
+              cpaRange.setBackground("#EA9999");
+            }
+          }
 
           mediaCost[t] += totalCost;
           grandCost[t] += totalCost;
