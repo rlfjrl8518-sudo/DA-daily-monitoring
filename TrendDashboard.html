@@ -106,7 +106,12 @@
   .msel-btn {
     cursor: pointer;
     min-width: 90px;
+    max-width: 220px;
     text-align: left;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    vertical-align: middle;
   }
   .msel-btn:after {
     content: "▾";
@@ -137,6 +142,57 @@
   }
   .msel-item:hover { background: #f1f3f4; }
   .msel-item input { margin-right: 6px; }
+
+  .tabs {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 14px;
+  }
+  .tab-btn {
+    padding: 6px 14px;
+    border: 1px solid #dadce0;
+    border-radius: 16px;
+    background: #fff;
+    cursor: pointer;
+    font-size: 12px;
+    color: #5f6368;
+  }
+  .tab-btn.active {
+    background: #e8f0fe;
+    color: #1a73e8;
+    border-color: #1a73e8;
+    font-weight: 600;
+  }
+  .adjust-controls {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 12px;
+  }
+  .adjust-hint {
+    color: #80868b;
+    font-size: 12px;
+  }
+  .subtabs {
+    display: flex;
+    gap: 6px;
+    margin-bottom: 12px;
+  }
+  .subtab-btn {
+    padding: 4px 12px;
+    border: 1px solid transparent;
+    border-radius: 6px;
+    background: #f1f3f4;
+    cursor: pointer;
+    font-size: 12px;
+    color: #5f6368;
+  }
+  .subtab-btn.active {
+    background: #fff;
+    border-color: #dadce0;
+    color: #202124;
+    font-weight: 600;
+  }
 </style>
 </head>
 <body>
@@ -156,33 +212,110 @@
     </select>
   </div>
 
-  <div class="charts">
-    <div class="chart-box">
-      <div class="chart-title">비용 추이</div>
-      <div id="costChart" class="chart"></div>
+  <div class="tabs">
+    <button type="button" class="tab-btn active" data-tab="trend">추이</button>
+    <button type="button" class="tab-btn" data-tab="adjust">조정사항 분석</button>
+  </div>
+
+  <div id="tab-trend">
+    <div class="charts">
+      <div class="chart-box">
+        <div class="chart-title">비용 추이</div>
+        <div id="costChart" class="chart"></div>
+      </div>
+      <div class="chart-box">
+        <div class="chart-title">DB 추이</div>
+        <div id="dbChart" class="chart"></div>
+      </div>
+      <div class="chart-box">
+        <div class="chart-title">단가(CPA) 추이</div>
+        <div id="cpaChart" class="chart"></div>
+      </div>
     </div>
-    <div class="chart-box">
-      <div class="chart-title">DB 추이</div>
-      <div id="dbChart" class="chart"></div>
-    </div>
-    <div class="chart-box">
-      <div class="chart-title">단가(CPA) 추이</div>
-      <div id="cpaChart" class="chart"></div>
+
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>날짜</th>
+            <th>비용</th>
+            <th>DB</th>
+            <th>단가</th>
+          </tr>
+        </thead>
+        <tbody id="tableBody"></tbody>
+      </table>
     </div>
   </div>
 
-  <div class="table-wrap">
-    <table>
-      <thead>
-        <tr>
-          <th>날짜</th>
-          <th>비용</th>
-          <th>DB</th>
-          <th>단가</th>
-        </tr>
-      </thead>
-      <tbody id="tableBody"></tbody>
-    </table>
+  <div id="tab-adjust" style="display:none;">
+    <div class="subtabs">
+      <button type="button" class="subtab-btn active" data-subtab="daily">일자별 추이</button>
+      <button type="button" class="subtab-btn" data-subtab="intraday">시간대별 현황</button>
+    </div>
+
+    <div id="subtab-daily">
+      <div class="adjust-controls">
+        <label for="compareWindow">비교 일수(전/후)</label>
+        <input type="number" id="compareWindow" min="1" value="3" style="width:60px;">
+        <span id="adjustHint" class="adjust-hint"></span>
+      </div>
+
+      <div class="chart-box" style="margin-bottom:14px;">
+        <div class="chart-title">CPA 추이 + 조정사항 마커</div>
+        <div id="adjustChart" class="chart" style="height:220px;"></div>
+      </div>
+
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>조정일시</th>
+              <th>매체</th>
+              <th>보종</th>
+              <th>카테고리</th>
+              <th>세부내용</th>
+              <th>전 비용</th>
+              <th>전 DB</th>
+              <th>전 CPA</th>
+              <th>후 비용</th>
+              <th>후 DB</th>
+              <th>후 CPA</th>
+              <th>CPA 증감</th>
+            </tr>
+          </thead>
+          <tbody id="adjustTableBody"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div id="subtab-intraday" style="display:none;">
+      <div class="adjust-controls">
+        <label for="intradayDateSelect">조정 건 선택</label>
+        <select id="intradayDateSelect" style="max-width:320px;"></select>
+        <span id="intradayHint" class="adjust-hint"></span>
+      </div>
+
+      <div class="chart-box" style="margin-bottom:14px;">
+        <div class="chart-title">당일 시간대별 CPA 추이</div>
+        <div id="intradayChart" class="chart" style="height:220px;"></div>
+      </div>
+
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>시각</th>
+              <th>비용</th>
+              <th>DB</th>
+              <th>단가</th>
+              <th>조정 시점</th>
+            </tr>
+          </thead>
+          <tbody id="intradayTableBody"></tbody>
+        </table>
+      </div>
+    </div>
   </div>
 
 <script>
@@ -236,9 +369,23 @@
     var selected = {};
     var onChangeCb = null;
 
+    // 선택된 항목이 없으면 "전체", 있으면 실제 이름을 보여준다(개수만 표시하면 뭘 골랐는지
+    // 다시 열어봐야 알 수 있어서). 2개까지는 이름을 그대로 나열하고, 그 이상이면 앞 2개 + "외
+    // N개"로 줄여서 버튼이 너무 길어지지 않게 하되, title(마우스 오버 툴팁)에는 전체 목록을
+    // 넣어 잘린 나머지도 바로 확인할 수 있게 한다.
     function updateButtonLabel() {
       var keys = Object.keys(selected);
-      btn.textContent = keys.length === 0 ? allLabel : (keys.length + '개 선택');
+
+      if (keys.length === 0) {
+        btn.textContent = allLabel;
+        btn.title = '';
+        return;
+      }
+
+      btn.title = keys.join(', ');
+      btn.textContent = keys.length <= 2
+        ? keys.join(', ')
+        : (keys.slice(0, 2).join(', ') + ' 외 ' + (keys.length - 2) + '개');
     }
 
     function setOptions(values) {
@@ -321,13 +468,9 @@
     return DATA.days.length - n;
   }
 
-  // 선택 조건(매체/보종 각각 다중 선택 가능, 최근 일수)에 맞는 날짜별 {cost, db} 합계
-  // 배열과, 매칭된 항목이 정확히 하나일 때의 targetCPA(그 외에는 null)를 계산한다.
-  function computeSeries() {
-    var startIdx = getVisibleStartIndex();
-    var days = DATA.days.slice(startIdx);
-    var totals = days.map(function() { return { cost: 0, db: 0 }; });
-
+  // 현재 매체/보종 다중 선택 필터에 맞는 항목들을 {media, product, targetCPA, byDate(전체 기간)}
+  // 형태로 뽑아준다. 추이 탭(computeSeries/computeGroupedSeries)과 조정사항 분석 탭이 공유한다.
+  function getMatchedItems() {
     var mediaSet = toSet(mediaMultiSelect.getSelected()); // 비어있으면 전체 매체
     var productSet = toSet(productMultiSelect.getSelected()); // 비어있으면 전체 보종
     var mediaFilterOn = Object.keys(mediaSet).length > 0;
@@ -341,9 +484,40 @@
     groups.forEach(function(group) {
       group.items.forEach(function(item) {
         if (productFilterOn && !productSet[item.product]) return;
-        matchedItems.push(item);
+        matchedItems.push({
+          media: group.media,
+          product: item.product,
+          targetCPA: item.targetCPA,
+          byDate: item.byDate
+        });
       });
     });
+
+    return matchedItems;
+  }
+
+  // 현재 매체/보종 필터에 맞는 조정사항만 골라준다(비어있으면 전체).
+  function getMatchedAdjustments() {
+    var mediaSet = toSet(mediaMultiSelect.getSelected());
+    var productSet = toSet(productMultiSelect.getSelected());
+    var mediaFilterOn = Object.keys(mediaSet).length > 0;
+    var productFilterOn = Object.keys(productSet).length > 0;
+
+    return DATA.adjustments.filter(function(a) {
+      if (mediaFilterOn && !mediaSet[a.media]) return false;
+      if (productFilterOn && !productSet[a.product]) return false;
+      return true;
+    });
+  }
+
+  // 선택 조건(매체/보종 각각 다중 선택 가능, 최근 일수)에 맞는 날짜별 {cost, db} 합계
+  // 배열과, 매칭된 항목이 정확히 하나일 때의 targetCPA(그 외에는 null)를 계산한다.
+  function computeSeries() {
+    var startIdx = getVisibleStartIndex();
+    var days = DATA.days.slice(startIdx);
+    var totals = days.map(function() { return { cost: 0, db: 0 }; });
+
+    var matchedItems = getMatchedItems();
 
     matchedItems.forEach(function(item) {
       item.byDate.slice(startIdx).forEach(function(entry, idx) {
@@ -526,11 +700,431 @@
     drawCharts(computeGroupedSeries()); // 그래프: 항목별로 나눠서 각각의 추이를 비교
   }
 
+  // totals(DATA.days와 같은 길이의 {cost, db} 배열)에서 [fromIdx, toIdx] 구간(경계 밖은 잘라냄)을
+  // 합산해 비용/DB/가중평균 CPA를 계산한다.
+  function aggregateWindow(totals, fromIdx, toIdx) {
+    var cost = 0, db = 0;
+    for (var i = Math.max(0, fromIdx); i <= Math.min(totals.length - 1, toIdx); i++) {
+      cost += totals[i].cost;
+      db += totals[i].db;
+    }
+    return { cost: cost, db: db, cpa: db > 0 ? Math.round(cost / db) : 0 };
+  }
+
+  function fmtOrDash(n) {
+    return n > 0 ? n.toLocaleString() : '-';
+  }
+
+  // 매체/보종 이름으로 (현재 필터와 무관하게) DATA.mediaGroups에서 원본 항목을 찾는다.
+  // 조정사항 하나하나는 항상 자기 자신의 매체/보종 실적만 기준으로 전/후를 계산해야 하므로,
+  // 필터로 여러 항목이 합쳐져 있어도 이 조회로 각 조정의 실제 항목을 되찾는다.
+  function findItemByMediaProduct(media, product) {
+    for (var i = 0; i < DATA.mediaGroups.length; i++) {
+      if (DATA.mediaGroups[i].media !== media) continue;
+      var items = DATA.mediaGroups[i].items;
+      for (var j = 0; j < items.length; j++) {
+        if (items[j].product === product) {
+          return { media: media, product: product, targetCPA: items[j].targetCPA, byDate: items[j].byDate };
+        }
+      }
+      return null;
+    }
+    return null;
+  }
+
+  function itemDailyTotals(item) {
+    return item.byDate.map(function(entry) {
+      return entry ? { cost: entry.cost, db: entry.db } : { cost: 0, db: 0 };
+    });
+  }
+
+  function getDaySnapshots(media, product, date) {
+    var byDate = DATA.daySnapshots[media + '||' + product];
+    return (byDate && byDate[date]) || [];
+  }
+
+  // 그 날 스냅샷들(시간순 정렬, [최종마감]은 항상 마지막) 중 조정 시각(time) 이전의 마지막
+  // 스냅샷 시각을 찾는다. 그 시각까지의 누적값이 "조정 직전까지의 당일 실적"이 된다.
+  function baselineSnapshotTime(snapshots, time) {
+    var found = null;
+    snapshots.forEach(function(s) {
+      if (s.time !== '00:00' && s.time <= time) found = s.time;
+    });
+    return found;
+  }
+
+  // 시간대별 현황 탭에서 마커를 붙일 위치를 찾는다. baselineSnapshotTime과 달리, 조정 시각보다
+  // 이른 스냅샷이 그 날 하나도 없어도(예: 그 날 첫 당일현황 클릭이 조정보다 늦은 경우) null을
+  // 반환하지 않고 그 날의 첫 스냅샷에 붙여서 최소한 대략적인 위치는 보여준다. 전/후 수치 계산
+  // (splitDaySnapshots)에는 쓰지 않고 오직 화면 표시용으로만 쓴다.
+  function markerSnapshotTime(snapshots, time) {
+    var baseline = baselineSnapshotTime(snapshots, time);
+    if (baseline) return baseline;
+    return snapshots.length ? snapshots[0].time : null;
+  }
+
+  // 하루치 스냅샷을 조정 시각 기준으로 "조정 전"(baseline까지 누적)과 "조정 후"(baseline부터
+  // 그 날 마지막 스냅샷까지의 증분)로 나눈다. 조정 전/후를 가를 스냅샷이 부족하면(예: 그 날
+  // 당일현황을 한 번도 안 눌렀거나, 조정 이후로 아직 한 번도 안 눌렀으면) hasBefore/hasAfter가
+  // false가 되어 호출 쪽에서 날짜 단위 비교로 대체하게 한다.
+  function splitDaySnapshots(snapshots, time) {
+    if (snapshots.length === 0) return { hasBefore: false, hasAfter: false };
+
+    var baselineTime = baselineSnapshotTime(snapshots, time);
+    var before = { cost: 0, db: 0 };
+    var hasAfterSnapshot = false;
+
+    snapshots.forEach(function(s) {
+      if (s.time === baselineTime) { before.cost = s.cost; before.db = s.db; }
+      if (s.time === '00:00' || s.time > time) hasAfterSnapshot = true;
+    });
+
+    if (!hasAfterSnapshot) {
+      return { hasBefore: !!baselineTime, hasAfter: false, beforeCost: before.cost, beforeDb: before.db };
+    }
+
+    var last = snapshots[snapshots.length - 1]; // 정렬돼 있으므로 [최종마감]이 있으면 항상 마지막
+
+    return {
+      hasBefore: !!baselineTime,
+      hasAfter: true,
+      beforeCost: before.cost,
+      beforeDb: before.db,
+      afterCost: last.cost - before.cost,
+      afterDb: last.db - before.db
+    };
+  }
+
+  // 조정 건 하나에 대해 "전 = (D-N일~D-1일 합계) + (D일 조정 전)", "후 = (D일 조정 후) +
+  // (D+1일~D+N일 합계)"를 계산한다. D일 안에서 조정 전/후를 가를 스냅샷이 부족하면 D일 자체를
+  // 비교에서 제외(기존 방식)하고 intradayOk를 false로 표시한다.
+  function computeMergedBeforeAfter(adj, windowDays) {
+    var item = findItemByMediaProduct(adj.media, adj.product);
+    var dIdx = item ? DATA.days.indexOf(adj.date) : -1;
+
+    if (!item || dIdx === -1) {
+      var empty = { cost: 0, db: 0, cpa: 0 };
+      return { before: empty, after: Object.assign({}, empty), intradayOk: false };
+    }
+
+    var totals = itemDailyTotals(item);
+    var beforeDaily = aggregateWindow(totals, dIdx - windowDays, dIdx - 1);
+    var afterDaily = aggregateWindow(totals, dIdx + 1, dIdx + windowDays);
+
+    var snaps = getDaySnapshots(adj.media, adj.product, adj.date);
+    var split = splitDaySnapshots(snaps, adj.time);
+
+    var before, after, intradayOk;
+
+    if (split.hasBefore && split.hasAfter) {
+      before = { cost: beforeDaily.cost + split.beforeCost, db: beforeDaily.db + split.beforeDb };
+      after = { cost: split.afterCost + afterDaily.cost, db: split.afterDb + afterDaily.db };
+      intradayOk = true;
+    } else {
+      before = beforeDaily;
+      after = afterDaily;
+      intradayOk = false;
+    }
+
+    before.cpa = before.db > 0 ? Math.round(before.cost / before.db) : 0;
+    after.cpa = after.db > 0 ? Math.round(after.cost / after.db) : 0;
+
+    return { before: before, after: after, intradayOk: intradayOk };
+  }
+
+  // 매체/보종을 각각 정확히 하나씩 선택했을 때만 CPA 추이 위에 조정사항 마커를 점으로 찍어 보여준다.
+  // 여러 항목이 섞이면 어느 조정이 어느 선에 해당하는지 알 수 없어 마커를 표시하지 않는다.
+  function renderAdjustChart(item, adjustments) {
+    var container = document.getElementById('adjustChart');
+
+    if (!item) {
+      container.innerHTML = '';
+      return;
+    }
+
+    var startIdx = getVisibleStartIndex();
+    var days = DATA.days.slice(startIdx);
+    var byDate = item.byDate.slice(startIdx);
+
+    var adjByDate = {};
+    adjustments.forEach(function(a) {
+      if (a.media !== item.media || a.product !== item.product) return;
+      if (!adjByDate[a.date]) adjByDate[a.date] = [];
+      adjByDate[a.date].push(a);
+    });
+
+    var dt = new google.visualization.DataTable();
+    dt.addColumn('string', '날짜');
+    dt.addColumn('number', 'CPA');
+    dt.addColumn({ type: 'string', role: 'annotation' });
+    dt.addColumn({ type: 'string', role: 'annotationText' });
+
+    days.forEach(function(d, idx) {
+      var entry = byDate[idx];
+      var cpa = entry && entry.db > 0 ? Math.round(entry.cost / entry.db) : 0;
+      var adjs = adjByDate[d];
+      var mark = adjs ? (adjs.length > 1 ? (adjs.length + '건') : adjs[0].category) : null;
+      var detail = adjs ? adjs.map(function(a) {
+        return a.time + ' ' + a.category + (a.detail ? ('(' + a.detail + ')') : '');
+      }).join('\n') : null;
+
+      dt.addRow([d.slice(5), cpa, mark, detail]);
+    });
+
+    new google.visualization.LineChart(container).draw(dt, {
+      legend: { position: 'none' },
+      chartArea: { left: 45, top: 10, right: 10, bottom: 30 },
+      colors: [SINGLE_SERIES_COLORS.cpa],
+      pointSize: 4,
+      lineWidth: 2,
+      curveType: 'function',
+      annotations: { style: 'point' }
+    });
+  }
+
+  // 조정 건마다 자기 자신의 매체/보종 실적으로 전/후를 계산한다(현재 필터가 여러 항목을
+  // 합쳐 보고 있어도, 표의 각 행은 항상 그 조정이 실제로 일어난 항목 기준으로 계산됨).
+  function renderAdjustTable(adjustments, windowDays) {
+    var body = document.getElementById('adjustTableBody');
+    body.innerHTML = '';
+
+    if (adjustments.length === 0) {
+      body.innerHTML = '<tr><td colspan="12" class="empty">표시할 조정사항이 없습니다.</td></tr>';
+      return;
+    }
+
+    var rows = adjustments.map(function(a) {
+      var result = computeMergedBeforeAfter(a, windowDays);
+      return { adj: a, before: result.before, after: result.after, intradayOk: result.intradayOk };
+    });
+
+    rows.sort(function(a, b) { return a.adj.date < b.adj.date ? 1 : (a.adj.date > b.adj.date ? -1 : 0); });
+
+    rows.forEach(function(r) {
+      var tr = document.createElement('tr');
+      var cpaDiff = (r.before.cpa > 0 && r.after.cpa > 0)
+        ? (Math.round((r.after.cpa - r.before.cpa) / r.before.cpa * 100) + '%')
+        : '-';
+      var note = r.intradayOk ? '' : ' <span class="adjust-hint">(당일 데이터 부족, D일 제외)</span>';
+
+      tr.innerHTML =
+        '<td>' + r.adj.date + ' ' + r.adj.time + '</td>' +
+        '<td>' + r.adj.media + '</td>' +
+        '<td>' + r.adj.product + '</td>' +
+        '<td>' + r.adj.category + '</td>' +
+        '<td>' + (r.adj.detail || '-') + note + '</td>' +
+        '<td>' + fmtOrDash(r.before.cost) + '</td>' +
+        '<td>' + fmtOrDash(r.before.db) + '</td>' +
+        '<td>' + fmtOrDash(r.before.cpa) + '</td>' +
+        '<td>' + fmtOrDash(r.after.cost) + '</td>' +
+        '<td>' + fmtOrDash(r.after.db) + '</td>' +
+        '<td>' + fmtOrDash(r.after.cpa) + '</td>' +
+        '<td>' + cpaDiff + '</td>';
+      body.appendChild(tr);
+    });
+  }
+
+  // 매체||보종||날짜 조합별로 조정 건을 묶어 "조정 건 선택" 드롭다운을 채운다. 이전에 고른
+  // 값이 여전히 유효하면 그대로 유지하고, 아니면 가장 최근 날짜를 기본 선택한다.
+  function populateIntradayDateSelect(adjustments) {
+    var select = document.getElementById('intradayDateSelect');
+    var prevValue = select.value;
+
+    var groups = {};
+    adjustments.forEach(function(a) {
+      var key = a.media + '||' + a.product + '||' + a.date;
+      if (!groups[key]) groups[key] = { media: a.media, product: a.product, date: a.date, items: [] };
+      groups[key].items.push(a);
+    });
+
+    var keys = Object.keys(groups).sort(function(x, y) {
+      return groups[x].date < groups[y].date ? 1 : (groups[x].date > groups[y].date ? -1 : 0);
+    });
+
+    select.innerHTML = '';
+
+    if (keys.length === 0) {
+      select.innerHTML = '<option value="">표시할 조정사항이 없습니다</option>';
+      return;
+    }
+
+    keys.forEach(function(key) {
+      var g = groups[key];
+      var opt = document.createElement('option');
+      opt.value = key;
+      opt.textContent = g.date + ' · ' + g.media + '/' + g.product +
+        (g.items.length > 1 ? (' (' + g.items.length + '건)') : (' · ' + g.items[0].category));
+      select.appendChild(opt);
+    });
+
+    select.value = groups[prevValue] ? prevValue : keys[0];
+  }
+
+  function renderIntradayChart(snaps, adjsOnDate) {
+    var container = document.getElementById('intradayChart');
+
+    if (snaps.length === 0) {
+      container.innerHTML = '';
+      return;
+    }
+
+    var dt = new google.visualization.DataTable();
+    dt.addColumn('string', '시각');
+    dt.addColumn('number', 'CPA');
+    dt.addColumn({ type: 'string', role: 'annotation' });
+    dt.addColumn({ type: 'string', role: 'annotationText' });
+
+    snaps.forEach(function(s) {
+      var cpa = s.db > 0 ? Math.round(s.cost / s.db) : 0;
+      var label = s.time === '00:00' ? '[최종마감]' : s.time;
+
+      var marks = adjsOnDate.filter(function(a) { return markerSnapshotTime(snaps, a.time) === s.time; });
+      var mark = marks.length ? (marks.length > 1 ? (marks.length + '건') : marks[0].category) : null;
+      var detail = marks.length ? marks.map(function(a) {
+        var beforeFirst = !baselineSnapshotTime(snaps, a.time);
+        return a.time + ' ' + a.category + (a.detail ? ('(' + a.detail + ')') : '') +
+          (beforeFirst ? ' (이 시점 이전 조정, 그 날 첫 스냅샷에 표시)' : '');
+      }).join('\n') : null;
+
+      dt.addRow([label, cpa, mark, detail]);
+    });
+
+    new google.visualization.LineChart(container).draw(dt, {
+      legend: { position: 'none' },
+      chartArea: { left: 45, top: 10, right: 10, bottom: 30 },
+      colors: [SINGLE_SERIES_COLORS.cpa],
+      pointSize: 4,
+      lineWidth: 2,
+      curveType: 'function',
+      annotations: { style: 'point' }
+    });
+  }
+
+  function renderIntradayTable(snaps, adjsOnDate) {
+    var body = document.getElementById('intradayTableBody');
+    body.innerHTML = '';
+
+    if (snaps.length === 0) {
+      body.innerHTML = '<tr><td colspan="5" class="empty">그 날의 시간대별 스냅샷이 없습니다.</td></tr>';
+      return;
+    }
+
+    var byMarker = {};
+    adjsOnDate.forEach(function(a) {
+      var t = markerSnapshotTime(snaps, a.time);
+      if (!t) return;
+      if (!byMarker[t]) byMarker[t] = [];
+      byMarker[t].push(a);
+    });
+
+    snaps.forEach(function(s) {
+      var tr = document.createElement('tr');
+      var label = s.time === '00:00' ? '[최종마감]' : s.time;
+      var cpa = s.db > 0 ? Math.round(s.cost / s.db) : 0;
+      var marks = byMarker[s.time];
+      var markCell = marks
+        ? marks.map(function(a) {
+            var beforeFirst = !baselineSnapshotTime(snaps, a.time);
+            return '◀ ' + a.time + ' ' + a.category + (a.detail ? ('(' + a.detail + ')') : '') +
+              (beforeFirst ? ' (이 시점 이전 조정)' : '');
+          }).join('<br>')
+        : '';
+
+      tr.innerHTML =
+        '<td>' + label + '</td>' +
+        '<td>' + fmtOrDash(s.cost) + '</td>' +
+        '<td>' + fmtOrDash(s.db) + '</td>' +
+        '<td>' + fmtOrDash(cpa) + '</td>' +
+        '<td style="text-align:left;color:#c5221f;">' + markCell + '</td>';
+      body.appendChild(tr);
+    });
+  }
+
+  function renderIntraday(adjustments) {
+    populateIntradayDateSelect(adjustments);
+
+    var select = document.getElementById('intradayDateSelect');
+    var key = select.value;
+
+    if (!key) {
+      renderIntradayChart([], []);
+      renderIntradayTable([], []);
+      return;
+    }
+
+    var parts = key.split('||');
+    var media = parts[0], product = parts[1], date = parts[2];
+
+    var snaps = getDaySnapshots(media, product, date);
+    var adjsOnDate = adjustments.filter(function(a) {
+      return a.media === media && a.product === product && a.date === date;
+    });
+
+    renderIntradayChart(snaps, adjsOnDate);
+    renderIntradayTable(snaps, adjsOnDate);
+  }
+
+  var compareWindowInput = document.getElementById('compareWindow');
+  compareWindowInput.value = DATA.defaultCompareWindow || 3;
+
+  function refreshAdjustTab() {
+    var matchedItems = getMatchedItems();
+    var adjustments = getMatchedAdjustments();
+    var windowDays = parseInt(compareWindowInput.value, 10) || 3;
+    var singleItem = matchedItems.length === 1;
+
+    document.getElementById('adjustHint').textContent = singleItem
+      ? ''
+      : '매체와 보종을 각각 하나씩 선택하면 조정사항 마커 차트가 표시됩니다.';
+
+    renderAdjustChart(singleItem ? matchedItems[0] : null, adjustments);
+    renderAdjustTable(adjustments, windowDays);
+    renderIntraday(adjustments);
+  }
+
+  document.querySelectorAll('.subtab-btn').forEach(function(btn) {
+    btn.addEventListener('click', function() {
+      document.querySelectorAll('.subtab-btn').forEach(function(b) { b.classList.remove('active'); });
+      btn.classList.add('active');
+
+      var sub = btn.dataset.subtab;
+      document.getElementById('subtab-daily').style.display = sub === 'daily' ? '' : 'none';
+      document.getElementById('subtab-intraday').style.display = sub === 'intraday' ? '' : 'none';
+
+      // 숨겨진 동안 그린 차트는 크기가 0이라 깨질 수 있으므로, 보이는 순간 다시 그린다.
+      if (sub === 'intraday') renderIntraday(getMatchedAdjustments());
+      else refreshAdjustTab();
+    });
+  });
+
+  document.getElementById('intradayDateSelect').addEventListener('change', function() {
+    renderIntraday(getMatchedAdjustments());
+  });
+
+  var currentTab = 'trend';
+
   var chartsReady = false;
 
   function refreshIfReady() {
-    if (chartsReady) refresh();
+    if (!chartsReady) return;
+    if (currentTab === 'adjust') refreshAdjustTab(); else refresh();
   }
+
+  document.querySelectorAll('.tab-btn').forEach(function(btn) {
+    btn.addEventListener('click', function() {
+      document.querySelectorAll('.tab-btn').forEach(function(b) { b.classList.remove('active'); });
+      btn.classList.add('active');
+
+      currentTab = btn.dataset.tab;
+      document.getElementById('tab-trend').style.display = currentTab === 'trend' ? '' : 'none';
+      document.getElementById('tab-adjust').style.display = currentTab === 'adjust' ? '' : 'none';
+
+      refreshIfReady();
+    });
+  });
+
+  compareWindowInput.addEventListener('input', refreshIfReady);
+  compareWindowInput.addEventListener('change', refreshIfReady);
 
   mediaMultiSelect.onChange(function() {
     rebuildProductOptions();
@@ -545,7 +1139,7 @@
   google.charts.load('current', { packages: ['corechart'] });
   google.charts.setOnLoadCallback(function() {
     chartsReady = true;
-    refresh();
+    refreshIfReady();
   });
 </script>
 </body>
