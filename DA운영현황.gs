@@ -160,6 +160,7 @@ function renderDateBlock_(dashboardSheet, startRow, dateKey, dayLogs, mediaOrder
       mediaDb[t] = 0;
     });
 
+    var isCatalogMedia = CATALOG_MEDIA.indexOf(media) !== -1;
     var mediaStartRow = row;
 
     mediaRows.forEach(function(item) {
@@ -172,18 +173,31 @@ function renderDateBlock_(dashboardSheet, startRow, dateKey, dayLogs, mediaOrder
         var found = logMap[key];
 
         if (found) {
-          var cost = Number(found[3]) || 0;
           var db = Number(found[4]) || 0;
-          var cpa = Number(found[5]) || 0;
 
-          rowData.push(cost);
-          rowData.push(db);
-          rowData.push(cpa);
+          // 카탈로그형 매체(CATALOG_MEDIA)는 보종별 비용을 나눌 수 없으므로, 보종별 행은
+          // DB만 표시하고 비용/단가는 비워둔다. 매체 전체 비용은 아래에서 CATALOG_TOTAL_PRODUCT
+          // 로그 한 건으로 매체 소계에만 반영한다.
+          if (isCatalogMedia) {
+            rowData.push("");
+            rowData.push(db);
+            rowData.push("");
 
-          mediaCost[t] += cost;
-          mediaDb[t] += db;
-          grandCost[t] += cost;
-          grandDb[t] += db;
+            mediaDb[t] += db;
+            grandDb[t] += db;
+          } else {
+            var cost = Number(found[3]) || 0;
+            var cpa = Number(found[5]) || 0;
+
+            rowData.push(cost);
+            rowData.push(db);
+            rowData.push(cpa);
+
+            mediaCost[t] += cost;
+            mediaDb[t] += db;
+            grandCost[t] += cost;
+            grandDb[t] += db;
+          }
         } else {
           rowData.push("");
           rowData.push("");
@@ -229,6 +243,19 @@ function renderDateBlock_(dashboardSheet, startRow, dateKey, dayLogs, mediaOrder
         .setVerticalAlignment("middle")
         .setHorizontalAlignment("center")
         .setFontWeight("bold");
+    }
+
+    // 카탈로그형 매체는 보종별 행에 비용을 넣지 않았으므로, CATALOG_TOTAL_PRODUCT로 별도
+    // 적재해둔 매체 전체 비용을 여기서 매체 소계에 더한다 (DB는 위에서 이미 보종별로 합산됨).
+    if (isCatalogMedia) {
+      times.forEach(function(t) {
+        var totalFound = logMap[t + "_" + media + "_" + CATALOG_TOTAL_PRODUCT];
+        if (totalFound) {
+          var totalCost = Number(totalFound[3]) || 0;
+          mediaCost[t] += totalCost;
+          grandCost[t] += totalCost;
+        }
+      });
     }
 
     var subtotal = [media + " 소계", ""];
