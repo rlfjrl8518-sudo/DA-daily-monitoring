@@ -478,6 +478,20 @@
 
     var matchedItems = [];
     groups.forEach(function(group) {
+      // 카탈로그형 매체(group.isCatalog)는 보종별 로그에 비용이 없어(늘 0) 보종별 항목을
+      // 그대로 더하면 비용이 항상 0으로 보인다. 보종 필터가 꺼져 있어 매체 전체를 보는
+      // 상황에서는, 서버가 별도로 집계해 보낸 group.total(진짜 매체 전체 비용/DB)을 대신 쓴다.
+      // 특정 보종을 골라 보는 경우는 지금처럼 그 보종의 DB만(비용 0) 보여준다.
+      if (group.isCatalog && !productFilterOn) {
+        matchedItems.push({
+          media: group.media,
+          product: null,
+          targetCPA: group.items.length ? group.items[0].targetCPA : null,
+          byDate: group.total.byDate
+        });
+        return;
+      }
+
       group.items.forEach(function(item) {
         if (productFilterOn && !productSet[item.product]) return;
         matchedItems.push({
@@ -567,20 +581,30 @@
       return seriesMap[label];
     }
 
+    function addByDate(values, byDate) {
+      byDate.slice(startIdx).forEach(function(entry, idx) {
+        if (!entry) return;
+        values[idx].cost += entry.cost;
+        values[idx].db += entry.db;
+      });
+    }
+
     groups.forEach(function(group) {
+      // getMatchedItems()와 같은 이유로, 카탈로그형 매체는 보종 필터가 없을 때 보종별 항목
+      // 대신 group.total(진짜 매체 전체 비용/DB)을 그 매체의 시리즈로 쓴다.
+      if (group.isCatalog && !productFilterOn) {
+        var catalogLabel = !anyFilterOn ? '전체' : group.media;
+        addByDate(seriesFor(catalogLabel), group.total.byDate);
+        return;
+      }
+
       group.items.forEach(function(item) {
         if (productFilterOn && !productSet[item.product]) return;
 
         // 필터가 하나도 없으면 전부 "전체"라는 하나의 시리즈로 합치고,
         // 필터가 있으면 보종 우선(보종별), 없으면 매체별로 나눈다.
         var label = !anyFilterOn ? '전체' : (productFilterOn ? item.product : group.media);
-        var values = seriesFor(label);
-
-        item.byDate.slice(startIdx).forEach(function(entry, idx) {
-          if (!entry) return;
-          values[idx].cost += entry.cost;
-          values[idx].db += entry.db;
-        });
+        addByDate(seriesFor(label), item.byDate);
       });
     });
 

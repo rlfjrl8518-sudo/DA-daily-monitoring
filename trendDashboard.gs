@@ -57,6 +57,13 @@ function showRecentTrendDashboard() {
   }
 
   // 매체별로, 기간 중 데이터가 한 번이라도 있었던 보종만 골라서 날짜별 값을 붙인다.
+  //
+  // CATALOG_MEDIA(카탈로그형 매체, 예: 크리테오 다이나믹)는 보종별 로그에 비용이 항상 비어
+  // 있어(DA운영설정.gs의 buildSnapshotResults_ 참고) 보종별 항목만으로는 비용을 알 수 없다.
+  // 그 매체 전체 비용은 CATALOG_TOTAL_PRODUCT라는 이름으로 로그에 한 번만 별도 적재돼 있으므로,
+  // 그 값을 finalMap에서 그대로 꺼내 group.total로 함께 보낸다. 프론트(TrendDashboard.html)는
+  // 보종 필터가 없을 때(=매체 전체를 볼 때)만 이 total을 쓰고, 특정 보종을 고르면 지금처럼
+  // 그 보종의 DB만(비용 0) 보여준다.
   var mediaGroups = mediaOrder
     .map(function(media) {
       var items = activeProducts
@@ -74,7 +81,20 @@ function showRecentTrendDashboard() {
             })
           };
         });
-      return { media: media, items: items };
+
+      var isCatalog = CATALOG_MEDIA.indexOf(media) !== -1;
+      var total = null;
+
+      if (isCatalog) {
+        total = {
+          byDate: days.map(function(d) {
+            var found = finalMap[d + "_" + media + "_" + CATALOG_TOTAL_PRODUCT];
+            return found ? { cost: found.cost, db: found.db } : null;
+          })
+        };
+      }
+
+      return { media: media, items: items, isCatalog: isCatalog, total: total };
     })
     .filter(function(g) { return g.items.length > 0; });
 
