@@ -664,12 +664,18 @@
     });
   }
 
-  var SERIES_COLORS = ['#4285f4', '#0f9d58', '#db4437', '#f4b400', '#9c27b0', '#00acc1', '#ff7043', '#5c6bc0'];
-  var SINGLE_SERIES_COLORS = { cost: '#4285f4', db: '#0f9d58', cpa: '#db4437' }; // 선이 하나뿐일 때 지표별 구분 색
+  // 카테고리 색: 파랑/아쿠아/노랑/초록/보라/빨강/마젠타/오렌지 순서 고정(인접 색상 대비를
+  // 최대화하도록 정해진 순서라 임의로 섞지 않는다). 항목(매체/보종) 필터로 여러 그룹이
+  // 나뉠 때 그룹마다 이 순서대로 배정한다.
+  var SERIES_COLORS = ['#2a78d6', '#1baf7a', '#eda100', '#008300', '#4a3aa7', '#e34948', '#e87ba4', '#eb6834'];
+  // 필터 없이 지표별로만 구분할 때(그룹이 하나뿐일 때) 쓰는 고정 색 — 위 카테고리 팔레트의
+  // 1/2/6번 슬롯(파랑/아쿠아/빨강)을 그대로 재사용해 톤을 통일한다.
+  var SINGLE_SERIES_COLORS = { cost: '#2a78d6', db: '#1baf7a', cpa: '#e34948' };
 
   // 지표 두 개(막대 1개 + 선 1개)를 한 차트에 겹쳐서 그린다. 항목(매체/보종) 필터가
-  // 하나도 안 걸려 있으면("전체" 시리즈 하나) 범례 없이 지표별 고정 색을 쓰고, 필터가
-  // 걸려 여러 항목으로 나뉘면 항목별 색으로 막대/선을 맞춰 구분하고 위쪽에 범례를 보여준다.
+  // 하나도 안 걸려 있으면("전체" 시리즈 하나) 지표별 고정 색을 쓰고, 필터가 걸려 여러
+  // 항목으로 나뉘면 항목별 색으로 막대/선을 맞춰 구분한다. 범례는 항상 보여줘서(막대/선
+  // 아이콘이 이미 다르게 그려지는 데다) 어떤 색이 무엇인지 항상 바로 알 수 있게 한다.
   function drawComboChart(containerId, grouped, barKey, lineKey, barLabel, lineLabel, barColor, lineColor) {
     var multi = grouped.series.length > 1;
 
@@ -688,7 +694,10 @@
       colIdx++;
 
       dt.addColumn('number', prefix + lineLabel);
-      seriesOptions[colIdx] = { type: 'line', targetAxisIndex: 1, color: groupColor || lineColor, pointSize: 4, lineWidth: 2 };
+      seriesOptions[colIdx] = {
+        type: 'line', targetAxisIndex: 1, color: groupColor || lineColor,
+        pointSize: 5, lineWidth: 3, curveType: 'function' // 완만한 곡선
+      };
       colIdx++;
     });
 
@@ -702,11 +711,17 @@
     });
 
     new google.visualization.ComboChart(document.getElementById(containerId)).draw(dt, {
-      legend: multi ? { position: 'top', textStyle: { fontSize: 10 } } : { position: 'none' },
-      chartArea: { left: 50, top: multi ? 30 : 10, right: 50, bottom: 30 },
+      legend: { position: 'top', textStyle: { fontSize: 11, color: '#52514e' } },
+      chartArea: { left: 52, top: 32, right: 52, bottom: 30 },
       seriesType: 'bars',
       series: seriesOptions,
-      vAxes: { 0: { textStyle: { fontSize: 10 } }, 1: { textStyle: { fontSize: 10 } } }
+      bar: { groupWidth: multi ? '55%' : '35%' },
+      vAxes: {
+        0: { textStyle: { fontSize: 10, color: '#898781' }, gridlines: { color: '#e1e0d9' }, baselineColor: '#c3c2b7' },
+        1: { textStyle: { fontSize: 10, color: '#898781' }, gridlines: { color: 'transparent' } }
+      },
+      hAxis: { textStyle: { fontSize: 10, color: '#898781' }, baselineColor: '#c3c2b7' },
+      backgroundColor: 'transparent'
     });
   }
 
