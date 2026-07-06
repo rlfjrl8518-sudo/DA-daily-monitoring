@@ -56,6 +56,19 @@
     width: 100%;
     height: 200px;
   }
+  .chart-pair {
+    display: flex;
+    flex-direction: column;
+  }
+  .chart-mini-title {
+    font-size: 10px;
+    color: #898781;
+    margin: 2px 0 0 4px;
+  }
+  .chart-mini {
+    width: 100%;
+    height: 92px;
+  }
   table {
     width: 100%;
     border-collapse: collapse;
@@ -220,12 +233,22 @@
   <div id="tab-trend">
     <div class="charts">
       <div class="chart-box">
-        <div class="chart-title">비용 &amp; DB 추이 (비용: 막대)</div>
-        <div id="costDbChart" class="chart"></div>
+        <div class="chart-title">비용 &amp; DB 추이</div>
+        <div class="chart-pair">
+          <div class="chart-mini-title">비용 (막대)</div>
+          <div id="costMiniChart" class="chart-mini"></div>
+          <div class="chart-mini-title">DB (선)</div>
+          <div id="dbMiniChart1" class="chart-mini"></div>
+        </div>
       </div>
       <div class="chart-box">
-        <div class="chart-title">DB &amp; 단가(CPA) 추이 (DB: 막대)</div>
-        <div id="dbCpaChart" class="chart"></div>
+        <div class="chart-title">DB &amp; 단가(CPA) 추이</div>
+        <div class="chart-pair">
+          <div class="chart-mini-title">DB (막대)</div>
+          <div id="dbMiniChart2" class="chart-mini"></div>
+          <div class="chart-mini-title">단가 (선)</div>
+          <div id="cpaMiniChart" class="chart-mini"></div>
+        </div>
       </div>
     </div>
 
@@ -672,62 +695,53 @@
   // 1/2/6번 슬롯(파랑/아쿠아/빨강)을 그대로 재사용해 톤을 통일한다.
   var SINGLE_SERIES_COLORS = { cost: '#2a78d6', db: '#1baf7a', cpa: '#e34948' };
 
-  // 지표 두 개(막대 1개 + 선 1개)를 한 차트에 겹쳐서 그린다. 항목(매체/보종) 필터가
-  // 하나도 안 걸려 있으면("전체" 시리즈 하나) 지표별 고정 색을 쓰고, 필터가 걸려 여러
-  // 항목으로 나뉘면 항목별 색으로 막대/선을 맞춰 구분한다. 범례는 항상 보여줘서(막대/선
-  // 아이콘이 이미 다르게 그려지는 데다) 어떤 색이 무엇인지 항상 바로 알 수 있게 한다.
-  function drawComboChart(containerId, grouped, barKey, lineKey, barLabel, lineLabel, barColor, lineColor) {
+  // 지표 하나(비용/DB/CPA 중 하나)를 막대 또는 선 그래프 하나로 그린다. 두 지표를 한 차트에
+  // 축 두 개로 겹쳐 그리면(dual y-axis) 각 축이 자기 데이터 범위에 따로 맞춰지기 때문에,
+  // 전체 합계일 때는 우연히 보기 좋다가도 필터로 특정 매체/보종만 골라 값이 작아지면 두 축의
+  // 비율이 어긋나 막대가 안 보이거나 선이 바닥에 깔리는 문제가 있었다. 그래서 비용/DB, DB/CPA를
+  // 겹치지 않고 각자 자기 축 하나만 쓰는 미니 차트로 나눠 위아래로 쌓아서 보여준다 — 항상
+  // 자기 데이터에 맞게 스케일이 잡히므로 필터를 걸어도 어긋나지 않는다.
+  function drawMetricChart(containerId, grouped, valueKey, chartType, fixedColor) {
     var multi = grouped.series.length > 1;
 
     var dt = new google.visualization.DataTable();
     dt.addColumn('string', '날짜');
-
-    var seriesOptions = {};
-    var colIdx = 0;
-
-    grouped.series.forEach(function(s, i) {
-      var prefix = multi ? (s.label + ' ') : '';
-      var groupColor = multi ? SERIES_COLORS[i % SERIES_COLORS.length] : null;
-
-      dt.addColumn('number', prefix + barLabel);
-      seriesOptions[colIdx] = { type: 'bars', targetAxisIndex: 0, color: groupColor || barColor };
-      colIdx++;
-
-      dt.addColumn('number', prefix + lineLabel);
-      seriesOptions[colIdx] = {
-        type: 'line', targetAxisIndex: 1, color: groupColor || lineColor,
-        pointSize: 5, lineWidth: 3, curveType: 'function' // 완만한 곡선
-      };
-      colIdx++;
-    });
+    grouped.series.forEach(function(s) { dt.addColumn('number', s.label); });
 
     grouped.days.forEach(function(d, idx) {
       var row = [d.slice(5)];
-      grouped.series.forEach(function(s) {
-        row.push(s.values[idx][barKey]);
-        row.push(s.values[idx][lineKey]);
-      });
+      grouped.series.forEach(function(s) { row.push(s.values[idx][valueKey]); });
       dt.addRow(row);
     });
 
-    new google.visualization.ComboChart(document.getElementById(containerId)).draw(dt, {
-      legend: { position: 'top', alignment: 'center', textStyle: { fontSize: 11, color: '#52514e' } },
-      chartArea: { left: 52, top: 32, right: 52, bottom: 30 },
-      seriesType: 'bars',
-      series: seriesOptions,
-      bar: { groupWidth: multi ? '55%' : '35%' },
-      vAxes: {
-        0: { textStyle: { fontSize: 10, color: '#898781' }, gridlines: { color: '#e1e0d9' }, baselineColor: '#c3c2b7' },
-        1: { textStyle: { fontSize: 10, color: '#898781' }, gridlines: { color: 'transparent' } }
+    var options = {
+      legend: multi ? { position: 'top', alignment: 'center', textStyle: { fontSize: 10, color: '#52514e' } } : { position: 'none' },
+      chartArea: { left: 48, top: multi ? 22 : 6, right: 12, bottom: 20 },
+      colors: multi ? SERIES_COLORS : [fixedColor],
+      hAxis: { textStyle: { fontSize: 9, color: '#898781' }, baselineColor: '#c3c2b7' },
+      vAxis: {
+        textStyle: { fontSize: 9, color: '#898781' }, gridlines: { color: '#e1e0d9' },
+        baselineColor: '#c3c2b7', minValue: 0
       },
-      hAxis: { textStyle: { fontSize: 10, color: '#898781' }, baselineColor: '#c3c2b7' },
       backgroundColor: 'transparent'
-    });
+    };
+
+    if (chartType === 'bars') {
+      options.bar = { groupWidth: multi ? '55%' : '35%' };
+      new google.visualization.ColumnChart(document.getElementById(containerId)).draw(dt, options);
+    } else {
+      options.curveType = 'function'; // 완만한 곡선
+      options.pointSize = 4;
+      options.lineWidth = 2;
+      new google.visualization.LineChart(document.getElementById(containerId)).draw(dt, options);
+    }
   }
 
   function drawCharts(grouped) {
-    drawComboChart('costDbChart', grouped, 'cost', 'db', '비용', 'DB', SINGLE_SERIES_COLORS.cost, SINGLE_SERIES_COLORS.db);
-    drawComboChart('dbCpaChart', grouped, 'db', 'cpa', 'DB', '단가', SINGLE_SERIES_COLORS.db, SINGLE_SERIES_COLORS.cpa);
+    drawMetricChart('costMiniChart', grouped, 'cost', 'bars', SINGLE_SERIES_COLORS.cost);
+    drawMetricChart('dbMiniChart1', grouped, 'db', 'line', SINGLE_SERIES_COLORS.db);
+    drawMetricChart('dbMiniChart2', grouped, 'db', 'bars', SINGLE_SERIES_COLORS.db);
+    drawMetricChart('cpaMiniChart', grouped, 'cpa', 'line', SINGLE_SERIES_COLORS.cpa);
   }
 
   var sortOrder = document.getElementById('sortOrder');
