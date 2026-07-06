@@ -176,8 +176,9 @@ function renderDateBlock_(dashboardSheet, startRow, dateKey, dayLogs, mediaOrder
           var db = Number(found[4]) || 0;
 
           // 카탈로그형 매체(CATALOG_MEDIA)는 보종별 비용을 나눌 수 없으므로, 보종별 행은
-          // DB만 표시하고 비용/단가는 비워둔다. 매체 전체 비용은 아래에서 CATALOG_TOTAL_PRODUCT
-          // 로그 한 건으로 매체 소계에만 반영한다.
+          // 일단 비용/단가를 비워두고 DB만 채운다. 매체 전체 비용/CPA는 이 매체 블록을 다 그린
+          // 뒤 CATALOG_TOTAL_PRODUCT 로그를 이용해 비용/단가 칸을 세로 병합해서 채워 넣는다
+          // (아래 "카탈로그형 매체는 보종별 행에..." 블록 참고).
           if (isCatalogMedia) {
             rowData.push("");
             rowData.push(db);
@@ -247,14 +248,36 @@ function renderDateBlock_(dashboardSheet, startRow, dateKey, dayLogs, mediaOrder
 
     // 카탈로그형 매체는 보종별 행에 비용을 넣지 않았으므로, CATALOG_TOTAL_PRODUCT로 별도
     // 적재해둔 매체 전체 비용을 여기서 매체 소계에 더한다 (DB는 위에서 이미 보종별로 합산됨).
+    // 아울러 보종별 행의 비용/단가 칸을 매체명 칸처럼 세로 병합해서, 빈칸으로 휑하게 두는 대신
+    // 그 병합된 자리에 매체 전체 비용/CPA를 한 번만 표시한다.
     if (isCatalogMedia) {
+      var catalogSheetCol = 5; // 첫 시간대의 "단가" 컬럼(= "비용" 컬럼 + 2)부터 시작
+
       times.forEach(function(t) {
         var totalFound = logMap[t + "_" + media + "_" + CATALOG_TOTAL_PRODUCT];
+
         if (totalFound) {
           var totalCost = Number(totalFound[3]) || 0;
+          var totalCpa = Number(totalFound[5]) || 0;
+          var costCol = catalogSheetCol - 2;
+          var cpaCol = catalogSheetCol;
+
+          var costRange = dashboardSheet.getRange(mediaStartRow, costCol, mediaRows.length, 1);
+          var cpaRange = dashboardSheet.getRange(mediaStartRow, cpaCol, mediaRows.length, 1);
+
+          if (mediaRows.length > 1) {
+            costRange.mergeVertically();
+            cpaRange.mergeVertically();
+          }
+
+          costRange.setValue(totalCost).setVerticalAlignment("middle").setHorizontalAlignment("center").setNumberFormat("#,##0");
+          cpaRange.setValue(totalCpa).setVerticalAlignment("middle").setHorizontalAlignment("center").setNumberFormat("#,##0");
+
           mediaCost[t] += totalCost;
           grandCost[t] += totalCost;
         }
+
+        catalogSheetCol += 3;
       });
     }
 
