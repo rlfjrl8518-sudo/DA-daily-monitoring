@@ -8,6 +8,8 @@ var TREND_COMPARE_WINDOW_DEFAULT_DAYS = 3; // 조정사항 분석 탭에서 기�
 // 계산해서 보내고, 실제 몇 일치를 볼지는 팝업 안의 입력창에서 즉시(재요청 없이) 조절한다.
 function showRecentTrendDashboard() {
 
+  var tStart = Date.now();
+
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   var settingSheet = ss.getSheetByName(SETTING_SHEET_NAME);
 
@@ -16,6 +18,7 @@ function showRecentTrendDashboard() {
   // 포함된 데이터라 그 호출은 불필요한 스프레드시트 왕복이었다.
   var settings = settingSheet.getDataRange().getValues();
   var logs = settings.map(function(row) { return row.slice(11, 17); });
+  _perfLog("설정 읽기 (" + settings.length + "행)", tStart);
 
   var meta = getMediaAndProducts_(settings);
   var mediaOrder = meta.mediaOrder;
@@ -23,6 +26,7 @@ function showRecentTrendDashboard() {
 
   var refDate = getTrendDashboardRefDate_(settings);
 
+  var tDays = Date.now();
   var days = [];
   var daysSet = {}; // days.indexOf(...)를 반복 호출하면 로그 행 수 x 기간일수만큼 선형 비교가
                      // 쌓이므로, 로그가 쌓일수록 느려지는 걸 막기 위해 해시셋으로 O(1) 조회한다.
@@ -55,6 +59,9 @@ function showRecentTrendDashboard() {
       db: Number(logs[i][4]) || 0
     };
   }
+  _perfLog("최근 " + TREND_DASHBOARD_MAX_DAYS + "일 최종마감 인덱싱 (로그 " + logs.length + "행)", tDays);
+
+  var tGroups = Date.now();
 
   // 매체별로, 기간 중 데이터가 한 번이라도 있었던 보종만 골라서 날짜별 값을 붙인다.
   //
@@ -97,17 +104,24 @@ function showRecentTrendDashboard() {
       return { media: media, items: items, isCatalog: isCatalog, total: total };
     })
     .filter(function(g) { return g.items.length > 0; });
+  _perfLog("매체/보종별 mediaGroups 구성", tGroups);
 
   // 조정사항 인덱스(setupAdjustmentLogColumns 실행 전이면 빈 배열)도 같은 기간만 골라 함께 보낸다.
   // settings는 이미 위에서 한 번 읽어둔 데이터라, 조정일자 헤더/행 수를 다시 시트에서 읽지
-  // 않고 그대로 재사용한다(불필요한 스프레드시트 호출 왕복을 줄이기 위함).
+  // 않고 그대로 재사용한다(불필요한 스프레드시트 호출 왕복을 줄이기 위함). 다만 getAdjustmentLog_
+  // 내부에서 조정시간/매체/보종/카테고리/세부내용은 getDisplayValues()로 settings 전체 행 수만큼
+  // 별도로 다시 읽으므로(주석 참고), 로그가 많이 쌓이면 이 호출도 눈에 띄게 느려질 수 있다.
+  var tAdjust = Date.now();
   var adjustments = getAdjustmentLog_(settingSheet, settings).filter(function(a) {
     return daysSet[a.date];
   });
+  _perfLog("조정사항 인덱스 읽기(getDisplayValues, " + settings.length + "행)", tAdjust);
 
   // "조정사항 분석" 탭의 시간대별 현황 서브탭 + 당일 전/후 분할 계산을 위해, 최종마감(00:00)뿐
   // 아니라 그 날 찍힌 모든 당일현황 스냅샷을 매체/보종/날짜별로 모아 시간순으로 함께 보낸다.
+  var tSnapshots = Date.now();
   var daySnapshots = buildDaySnapshots_(logs, daysSet);
+  _perfLog("daySnapshots 구성", tSnapshots);
 
   // "당일 시간대별 현황" 탭용: days/daysSet(최종마감 추이용, 조회일 전날까지만 포함)와는 별도로
   // 조회일(=당일) 하루치 당일현황 스냅샷만 매체/보종별로 모아 시간순으로 보낸다. 최종마감
@@ -128,11 +142,15 @@ function showRecentTrendDashboard() {
     catalogTotalProduct: CATALOG_TOTAL_PRODUCT
   };
 
+  var tTemplate = Date.now();
   var template = HtmlService.createTemplateFromFile('TrendDashboard');
   template.dataJson = JSON.stringify(payload);
 
   var html = template.evaluate().setWidth(1100).setHeight(750);
+  _perfLog("HTML 템플릿 구성", tTemplate);
+
   SpreadsheetApp.getUi().showModalDialog(html, "최종마감 추이 대시보드");
+  Logger.log("showRecentTrendDashboard 전체(다이얼로그 렌더링 제외): " + (Date.now() - tStart) + "ms");
 }
 
 // DA운영설정 시트의 "조회일" 헤더 밑 값을 읽어온다. 값이 없거나 날짜가 아니면 오늘 날짜로 대체한다.

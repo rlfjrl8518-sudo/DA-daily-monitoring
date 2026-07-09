@@ -60,9 +60,34 @@ function buildSnapshotResults_(settings, rawMap, saveDate) {
   return results;
 }
 
+// 단계별 소요 시간을 실행 로그(Apps Script 편집기 "실행 기록"/Logger)에 남기는 헬퍼.
+// 어느 구간이 느린지 추측 대신 실측으로 확인하기 위한 용도로, 로직에는 영향을 주지 않는다.
+function _perfLog(label, startMs) {
+  Logger.log("[perf] " + label + ": " + (Date.now() - startMs) + "ms");
+}
+
+// L열(로그 날짜)에 데이터가 있는 마지막 행 다음 번호를 찾는다. 예전에는 "L:L"(시트에 잡혀있는
+// 전체 행 범위 — 실제 로그 행 수보다 훨씬 큰 경우가 흔함)을 통째로 읽어서 느렸는데, getLastRow()로
+// 실제 마지막 행까지만 읽도록 범위를 좁혔다. saveMonitoringSnapshot()/saveMonitoringSnapshot_final()이
+// 공유해서 쓴다.
+function findNextLogRow_(settingSheet) {
+  var lastRow = settingSheet.getLastRow();
+  if (lastRow < 2) return 2;
+
+  var logColumn = settingSheet.getRange(2, 12, lastRow - 1, 1).getValues().flat();
+
+  for (var r = logColumn.length - 1; r >= 0; r--) {
+    if (logColumn[r] !== "") return r + 3; // logColumn[r]는 시트의 (r+2)행이므로, 다음 빈 행은 그 다음
+  }
+
+  return 2;
+}
+
 // DB_RAW 시트의 원본 전환 데이터를 집계해서 DA운영설정 시트 로그(L~Q열)에
 // "조회일" 기준 스냅샷 한 묶음을 새로 적재한다. (당일현황 버튼)
 function saveMonitoringSnapshot() {
+
+  var tStart = Date.now();
 
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   var settingSheet = ss.getSheetByName("DA운영설정");
@@ -70,6 +95,7 @@ function saveMonitoringSnapshot() {
 
   var settings = settingSheet.getDataRange().getValues();
   var rawData = rawSheet.getDataRange().getValues();
+  _perfLog("설정/DB_RAW 읽기 (DB_RAW " + rawData.length + "행)", tStart);
 
   var now = new Date();
   var currentTime = Utilities.formatDate(now, "Asia/Seoul", "HH:mm:ss");
@@ -88,9 +114,9 @@ function saveMonitoringSnapshot() {
   }
 
   var targetDateStr = Utilities.formatDate(targetDate, "Asia/Seoul", "yyyy-MM-dd");
-  var todayStr = Utilities.formatDate(now, "Asia/Seoul", "yyyy-MM-dd");
 
   // rawData를 Map으로 미리 인덱싱 (날짜_매체_보종 → count)
+  var tRawMap = Date.now();
   var rawMap = {};
 
   for (var j = 1; j < rawData.length; j++) {
@@ -106,6 +132,7 @@ function saveMonitoringSnapshot() {
 
     rawMap[key] = (rawMap[key] || 0) + 1;
   }
+  _perfLog("DB_RAW 집계(rawMap 구성)", tRawMap);
 
   var saveDate = new Date(targetDateStr + " " + currentTime);
   var results = buildSnapshotResults_(settings, rawMap, saveDate);
@@ -115,18 +142,15 @@ function saveMonitoringSnapshot() {
     return;
   }
 
-  var logColumn = settingSheet.getRange("L:L").getValues().flat();
-  var startRow = 2;
+  var tFindRow = Date.now();
+  var startRow = findNextLogRow_(settingSheet);
+  _perfLog("다음 빈 행 탐색", tFindRow);
 
-  for (var r = logColumn.length - 1; r >= 0; r--) {
-    if (logColumn[r] !== "") {
-      startRow = r + 2;
-      break;
-    }
-  }
-
+  var tWrite = Date.now();
   settingSheet.getRange(startRow, 12, results.length, 6).setValues(results);
-  Logger.log(results.length + "건 저장 완료");
+  _perfLog("로그 " + results.length + "건 쓰기", tWrite);
+
+  Logger.log(results.length + "건 저장 완료 (전체 " + (Date.now() - tStart) + "ms)");
 
 }
 
@@ -136,12 +160,15 @@ function saveMonitoringSnapshot() {
 // 여러 번 눌러도(정정 포함) 중복되지 않는다.
 function saveMonitoringSnapshot_final() {
 
+  var tStart = Date.now();
+
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   var settingSheet = ss.getSheetByName("DA운영설정");
   var rawSheet = ss.getSheetByName("DB_RAW");
 
   var settings = settingSheet.getDataRange().getValues();
   var rawData = rawSheet.getDataRange().getValues();
+  _perfLog("설정/DB_RAW 읽기 (DB_RAW " + rawData.length + "행)", tStart);
 
   var now = new Date();
 
@@ -161,7 +188,9 @@ function saveMonitoringSnapshot_final() {
   var targetDateStr = Utilities.formatDate(targetDate, "Asia/Seoul", "yyyy-MM-dd");
 
   // 기존 최종마감 데이터 삭제 (00:00 시간대만)
-  var logData = settingSheet.getRange(2, 12, settingSheet.getLastRow() - 1, 6).getValues();
+  var tDelete = Date.now();
+  var lastRow = settingSheet.getLastRow();
+  var logData = lastRow >= 2 ? settingSheet.getRange(2, 12, lastRow - 1, 6).getValues() : [];
 
   var rowsToDelete = [];
 
@@ -177,27 +206,41 @@ function saveMonitoringSnapshot_final() {
     }
   }
 
-  rowsToDelete.sort(function(a, b) { return b - a; });
-  rowsToDelete.forEach(function(rowNum) {
-    settingSheet.deleteRow(rowNum);
-  });
+  // rowsToDelete는 이미 내림차순으로 모이지만, 연속된 행 구간을 하나로 묶어 deleteRows()를
+  // 구간당 한 번씩만 호출한다. 예전에는 지울 행마다 deleteRow()를 개별 호출했는데, 행 삭제는
+  // 그 아래 모든 행을 밀어올리는 무거운 연산이라 여러 번 반복하면 특히 느렸다(보통 한 번의
+  // 최종마감 저장이 여러 매체/보종에 걸쳐 연속된 행으로 찍히므로 대부분 한 구간으로 묶인다).
+  var di = 0;
+  while (di < rowsToDelete.length) {
+    var runEnd = rowsToDelete[di];
+    var dj = di;
+    while (dj + 1 < rowsToDelete.length && rowsToDelete[dj + 1] === rowsToDelete[dj] - 1) {
+      dj++;
+    }
+    var runStart = rowsToDelete[dj];
+    settingSheet.deleteRows(runStart, runEnd - runStart + 1);
+    di = dj + 1;
+  }
+  _perfLog("기존 최종마감(00:00) " + rowsToDelete.length + "건 삭제", tDelete);
 
   // rawData를 Map으로 미리 인덱싱
+  var tRawMap = Date.now();
   var rawMap = {};
 
-  for (var j = 1; j < rawData.length; j++) {
-    var rawDate = rawData[j][3];
+  for (var k = 1; k < rawData.length; k++) {
+    var rawDate = rawData[k][3];
     if (!rawDate) continue;
 
     var rawDateStr = Utilities.formatDate(new Date(rawDate), "Asia/Seoul", "yyyy-MM-dd");
     if (rawDateStr !== targetDateStr) continue;
 
-    var rawMedia = String(rawData[j][11]).trim();
-    var rawProduct = String(rawData[j][12]).trim();
+    var rawMedia = String(rawData[k][11]).trim();
+    var rawProduct = String(rawData[k][12]).trim();
     var key = rawMedia + "_" + rawProduct;
 
     rawMap[key] = (rawMap[key] || 0) + 1;
   }
+  _perfLog("DB_RAW 집계(rawMap 구성)", tRawMap);
 
   var saveDate = new Date(targetDateStr + " 00:00:00");
   var results = buildSnapshotResults_(settings, rawMap, saveDate);
@@ -207,18 +250,15 @@ function saveMonitoringSnapshot_final() {
     return;
   }
 
-  var logColumn = settingSheet.getRange("L:L").getValues().flat();
-  var startRow = 2;
+  var tFindRow = Date.now();
+  var startRow = findNextLogRow_(settingSheet);
+  _perfLog("다음 빈 행 탐색", tFindRow);
 
-  for (var r = logColumn.length - 1; r >= 0; r--) {
-    if (logColumn[r] !== "") {
-      startRow = r + 2;
-      break;
-    }
-  }
-
+  var tWrite = Date.now();
   settingSheet.getRange(startRow, 12, results.length, 6).setValues(results);
-  Logger.log(results.length + "건 최종마감 저장 완료");
+  _perfLog("로그 " + results.length + "건 쓰기", tWrite);
+
+  Logger.log(results.length + "건 최종마감 저장 완료 (전체 " + (Date.now() - tStart) + "ms)");
 
 }
 

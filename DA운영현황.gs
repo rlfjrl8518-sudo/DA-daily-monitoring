@@ -19,6 +19,8 @@ var DASHBOARD_DETAIL_BASE_ROW = DASHBOARD_TOP_RESERVED_ROWS + 1;
 // 있으니, 그런 상황이 되면 다시 구간 분할을 고려한다.)
 function renderFullDashboard() {
 
+  var tStart = Date.now();
+
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   var dashboardSheet = ss.getSheetByName(DASH_SHEET_NAME);
   var settingSheet = ss.getSheetByName(SETTING_SHEET_NAME);
@@ -26,11 +28,13 @@ function renderFullDashboard() {
   var settings = settingSheet.getDataRange().getValues();
   var lastSettingRow = settingSheet.getLastRow();
   var logs = settingSheet.getRange(1, 12, lastSettingRow, 6).getValues();
+  _perfLog("설정/로그 읽기 (로그 " + logs.length + "행)", tStart);
 
   var meta = getMediaAndProducts_(settings);
   var mediaOrder = meta.mediaOrder;
   var activeProducts = meta.activeProducts;
 
+  var tDateMap = Date.now();
   var dateMap = {};
 
   for (var i = 1; i < logs.length; i++) {
@@ -43,13 +47,17 @@ function renderFullDashboard() {
   }
 
   var dateKeys = Object.keys(dateMap).sort(); // 오래된 -> 최신
+  _perfLog("날짜별 로그 그룹핑 (" + dateKeys.length + "일)", tDateMap);
 
+  var tClear = Date.now();
   var lastRowNum = dashboardSheet.getLastRow();
   if (lastRowNum >= DASHBOARD_DETAIL_BASE_ROW) {
     var maxCol = dashboardSheet.getMaxColumns();
     dashboardSheet.getRange(DASHBOARD_DETAIL_BASE_ROW, 1, lastRowNum - DASHBOARD_DETAIL_BASE_ROW + 1, maxCol).clear();
   }
+  _perfLog("기존 상세 영역 지우기 (" + lastRowNum + "행)", tClear);
 
+  var tRender = Date.now();
   var row = DASHBOARD_DETAIL_BASE_ROW;
 
   dateKeys.forEach(function(dateKey) {
@@ -61,8 +69,13 @@ function renderFullDashboard() {
 
     row = endRow + 3;
   });
+  _perfLog("날짜 블록 " + dateKeys.length + "개 렌더링", tRender);
 
+  var tWidths = Date.now();
   applyColumnWidths_(dashboardSheet);
+  _perfLog("컬럼 너비 적용", tWidths);
+
+  Logger.log("renderFullDashboard 전체: " + (Date.now() - tStart) + "ms");
 }
 
 // 날짜 하나에 대한 상세 표(날짜 헤더 + 시간대별 매체/보종 비용·DB·단가 + 소계 + 전체합계)를
