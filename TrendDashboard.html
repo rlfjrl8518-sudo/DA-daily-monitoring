@@ -193,6 +193,16 @@
     color: #202124;
     font-weight: 600;
   }
+  .avg-cpa-stat {
+    float: right;
+    font-weight: 400;
+    color: #5f6368;
+  }
+  .avg-cpa-stat strong {
+    color: #1a73e8;
+    font-size: 13px;
+    margin: 0 4px;
+  }
 </style>
 </head>
 <body>
@@ -215,6 +225,7 @@
   <div class="tabs">
     <button type="button" class="tab-btn active" data-tab="trend">추이</button>
     <button type="button" class="tab-btn" data-tab="adjust">조정사항 분석</button>
+    <button type="button" class="tab-btn" data-tab="today">당일 시간대별 현황</button>
   </div>
 
   <div id="tab-trend">
@@ -224,7 +235,9 @@
         <div id="costDbChart" class="chart"></div>
       </div>
       <div class="chart-box">
-        <div class="chart-title">DB &amp; 단가(CPA) 추이 (DB: 막대)</div>
+        <div class="chart-title">DB &amp; 단가(CPA) 추이 (DB: 막대)
+          <span class="avg-cpa-stat">선택 기간 평균 단가 <strong id="avgCpaValue">-</strong><span id="avgCpaBadge"></span></span>
+        </div>
         <div id="dbCpaChart" class="chart"></div>
       </div>
     </div>
@@ -311,6 +324,37 @@
           <tbody id="intradayTableBody"></tbody>
         </table>
       </div>
+    </div>
+  </div>
+
+  <div id="tab-today" style="display:none;">
+    <div class="adjust-controls">
+      <span id="todayDateLabel"></span>
+    </div>
+
+    <div class="charts">
+      <div class="chart-box">
+        <div class="chart-title">당일 비용 &amp; DB 추이 (비용: 막대)</div>
+        <div id="todayCostDbChart" class="chart"></div>
+      </div>
+      <div class="chart-box">
+        <div class="chart-title">당일 DB &amp; 단가(CPA) 추이 (DB: 막대)</div>
+        <div id="todayDbCpaChart" class="chart"></div>
+      </div>
+    </div>
+
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>시각</th>
+            <th>비용</th>
+            <th>DB</th>
+            <th>단가</th>
+          </tr>
+        </thead>
+        <tbody id="todayTableBody"></tbody>
+      </table>
     </div>
   </div>
 
@@ -486,6 +530,7 @@
         matchedItems.push({
           media: group.media,
           product: null,
+          snapshotProduct: DATA.catalogTotalProduct,
           targetCPA: group.items.length ? group.items[0].targetCPA : null,
           byDate: group.total.byDate
         });
@@ -497,6 +542,7 @@
         matchedItems.push({
           media: group.media,
           product: item.product,
+          snapshotProduct: item.product,
           targetCPA: item.targetCPA,
           byDate: item.byDate
         });
@@ -691,8 +737,11 @@
   // 깔리는 문제가 있었다. 그래서 각 축의 viewWindow(0~실제 최댓값*1.15)를 매번 그 순간의
   // 실제 데이터로 직접 계산해서 강제 고정한다 — 필터 여부와 무관하게 항상 그 데이터의 최댓값
   // 근처까지 꽉 차게 그려지므로 스케일이 어긋나지 않는다.
-  function drawComboChart(containerId, grouped, barKey, lineKey, barLabel, lineLabel, barColor, lineColor) {
+  // xLabelFn: 가로축에 표시할 라벨을 grouped.days의 각 항목("yyyy-MM-dd" 날짜 또는 "HH:mm" 시각)
+  // 에서 뽑아내는 함수. 생략하면 날짜 뒤 5자리("MM-dd")를 쓰는 기존 방식(추이 탭)을 그대로 쓴다.
+  function drawComboChart(containerId, grouped, barKey, lineKey, barLabel, lineLabel, barColor, lineColor, xLabelFn) {
     var multi = grouped.series.length > 1;
+    var labelFn = xLabelFn || function(d) { return d.slice(5); };
 
     var dt = new google.visualization.DataTable();
     dt.addColumn('string', '날짜');
@@ -717,7 +766,7 @@
     });
 
     grouped.days.forEach(function(d, idx) {
-      var row = [d.slice(5)];
+      var row = [labelFn(d)];
       grouped.series.forEach(function(s) {
         row.push(s.values[idx][barKey]);
         row.push(s.values[idx][lineKey]);
@@ -754,6 +803,20 @@
     drawComboChart('dbCpaChart', grouped, 'db', 'cpa', 'DB', '단가', SINGLE_SERIES_COLORS.db, SINGLE_SERIES_COLORS.cpa);
   }
 
+  // 표에 쓰인 rows(선택된 기간·필터의 날짜별 합계)를 그대로 합산해 기간 전체의 가중평균 단가를
+  // 구한다. 매체/보종을 정확히 하나씩 골랐을 때만 존재하는 targetCPA가 있으면 상태 배지도 같이 보여준다.
+  function updateAvgCpaSummary(rows) {
+    var totalCost = 0, totalDb = 0;
+    rows.forEach(function(r) { totalCost += r.cost; totalDb += r.db; });
+    var avgCpa = totalDb > 0 ? Math.round(totalCost / totalDb) : 0;
+
+    document.getElementById('avgCpaValue').textContent = totalDb > 0 ? avgCpa.toLocaleString() : '-';
+
+    var targetCPA = rows.length ? rows[0].targetCPA : null;
+    document.getElementById('avgCpaBadge').innerHTML =
+      (totalDb > 0) ? statusBadge({ targetCPA: targetCPA, cpa: avgCpa, hasData: true }) : '';
+  }
+
   var sortOrder = document.getElementById('sortOrder');
 
   function refresh() {
@@ -766,7 +829,137 @@
       var tableRows = sortOrder.value === 'desc' ? rows.slice().reverse() : rows;
       renderTable(tableRows);
     }
+    updateAvgCpaSummary(rows);
     drawCharts(computeGroupedSeries()); // 그래프: 항목별로 나눠서 각각의 추이를 비교
+  }
+
+  // 당일(조회일) 시간대별 스냅샷을 매체/보종 필터에 맞는 항목들끼리 시각 단위로 합산한 표 데이터를
+  // 만든다. 당일현황 버튼은 클릭마다 활성 매체/보종 전체를 같은 시각으로 한 번에 찍으므로(서버
+  // buildTodaySnapshots_ 참고), 서로 다른 항목이라도 같은 시각 값끼리는 그대로 더해도 어긋나지 않는다.
+  function computeTodayTotalSeries() {
+    var matchedItems = getMatchedItems();
+    var byTime = {};
+    var timesSet = {};
+
+    matchedItems.forEach(function(item) {
+      var snaps = DATA.todaySnapshots[item.media + '||' + item.snapshotProduct] || [];
+      snaps.forEach(function(s) {
+        timesSet[s.time] = true;
+        if (!byTime[s.time]) byTime[s.time] = { cost: 0, db: 0 };
+        byTime[s.time].cost += s.cost;
+        byTime[s.time].db += s.db;
+      });
+    });
+
+    var times = Object.keys(timesSet).sort();
+    var targetCPA = matchedItems.length === 1 ? matchedItems[0].targetCPA : null;
+
+    return times.map(function(t) {
+      var v = byTime[t];
+      return {
+        time: t,
+        cost: v.cost,
+        db: v.db,
+        cpa: v.db > 0 ? Math.round(v.cost / v.db) : 0,
+        hasData: v.cost > 0 || v.db > 0,
+        targetCPA: targetCPA
+      };
+    });
+  }
+
+  // 그래프용: computeGroupedSeries()와 같은 방식(필터 없으면 전체 하나로, 있으면 보종별 또는
+  // 매체별로 나눠서)으로 당일 시간대별 시리즈를 만든다. drawComboChart가 그대로 재사용할 수
+  // 있도록 { days, series } 형태를 맞추되, days 자리에는 날짜 대신 시각("HH:mm")이 들어간다.
+  function computeTodayGroupedSeries() {
+    var mediaSet = toSet(mediaMultiSelect.getSelected());
+    var productSet = toSet(productMultiSelect.getSelected());
+    var mediaFilterOn = Object.keys(mediaSet).length > 0;
+    var productFilterOn = Object.keys(productSet).length > 0;
+    var anyFilterOn = mediaFilterOn || productFilterOn;
+
+    var groups = DATA.mediaGroups.filter(function(g) {
+      return !mediaFilterOn || mediaSet[g.media];
+    });
+
+    var seriesMap = {}; // label -> "HH:mm" -> {cost, db}
+    var seriesOrder = [];
+    var timesSet = {};
+
+    function addSnapshots(label, snapshotKey) {
+      var snaps = DATA.todaySnapshots[snapshotKey] || [];
+      if (snaps.length === 0) return;
+      if (!seriesMap[label]) { seriesMap[label] = {}; seriesOrder.push(label); }
+      snaps.forEach(function(s) {
+        timesSet[s.time] = true;
+        if (!seriesMap[label][s.time]) seriesMap[label][s.time] = { cost: 0, db: 0 };
+        seriesMap[label][s.time].cost += s.cost;
+        seriesMap[label][s.time].db += s.db;
+      });
+    }
+
+    groups.forEach(function(group) {
+      if (group.isCatalog && !productFilterOn) {
+        var catalogLabel = !anyFilterOn ? '전체' : group.media;
+        addSnapshots(catalogLabel, group.media + '||' + DATA.catalogTotalProduct);
+        return;
+      }
+
+      group.items.forEach(function(item) {
+        if (productFilterOn && !productSet[item.product]) return;
+        var label = !anyFilterOn ? '전체' : (productFilterOn ? item.product : group.media);
+        addSnapshots(label, group.media + '||' + item.product);
+      });
+    });
+
+    var times = Object.keys(timesSet).sort();
+
+    return {
+      days: times,
+      series: seriesOrder.map(function(label) {
+        return {
+          label: label,
+          values: times.map(function(t) {
+            var v = (seriesMap[label] && seriesMap[label][t]) || { cost: 0, db: 0 };
+            return { cost: v.cost, db: v.db, cpa: v.db > 0 ? Math.round(v.cost / v.db) : 0 };
+          })
+        };
+      })
+    };
+  }
+
+  function renderTodayTable(rows) {
+    var body = document.getElementById('todayTableBody');
+    body.innerHTML = '';
+
+    if (rows.length === 0 || rows.every(function(r) { return !r.hasData; })) {
+      body.innerHTML = '<tr><td colspan="4" class="empty">오늘(' + DATA.todayDate + ') 당일현황 데이터가 없습니다.</td></tr>';
+      return;
+    }
+
+    rows.forEach(function(row) {
+      var tr = document.createElement('tr');
+      tr.innerHTML =
+        '<td>' + row.time + '</td>' +
+        '<td>' + (row.hasData ? row.cost.toLocaleString() : '-') + '</td>' +
+        '<td>' + (row.hasData ? row.db.toLocaleString() : '-') + '</td>' +
+        '<td>' + (row.hasData ? row.cpa.toLocaleString() : '-') + statusBadge(row) + '</td>';
+      body.appendChild(tr);
+    });
+  }
+
+  // 시각("HH:mm")은 이미 x축 라벨로 그대로 쓸 문자열이므로, 추이 탭의 날짜 slice(5) 대신
+  // 그대로 반환하는 라벨 함수를 drawComboChart에 넘긴다.
+  function todayXLabel(t) { return t; }
+
+  function drawTodayCharts(grouped) {
+    drawComboChart('todayCostDbChart', grouped, 'cost', 'db', '비용', 'DB', SINGLE_SERIES_COLORS.cost, SINGLE_SERIES_COLORS.db, todayXLabel);
+    drawComboChart('todayDbCpaChart', grouped, 'db', 'cpa', 'DB', '단가', SINGLE_SERIES_COLORS.db, SINGLE_SERIES_COLORS.cpa, todayXLabel);
+  }
+
+  function refreshTodayTab() {
+    document.getElementById('todayDateLabel').textContent = '오늘(조회일): ' + DATA.todayDate;
+    renderTodayTable(computeTodayTotalSeries());
+    drawTodayCharts(computeTodayGroupedSeries());
   }
 
   // totals(DATA.days와 같은 길이의 {cost, db} 배열)에서 [fromIdx, toIdx] 구간(경계 밖은 잘라냄)을
@@ -1176,7 +1369,9 @@
 
   function refreshIfReady() {
     if (!chartsReady) return;
-    if (currentTab === 'adjust') refreshAdjustTab(); else refresh();
+    if (currentTab === 'adjust') refreshAdjustTab();
+    else if (currentTab === 'today') refreshTodayTab();
+    else refresh();
   }
 
   document.querySelectorAll('.tab-btn').forEach(function(btn) {
@@ -1187,6 +1382,7 @@
       currentTab = btn.dataset.tab;
       document.getElementById('tab-trend').style.display = currentTab === 'trend' ? '' : 'none';
       document.getElementById('tab-adjust').style.display = currentTab === 'adjust' ? '' : 'none';
+      document.getElementById('tab-today').style.display = currentTab === 'today' ? '' : 'none';
 
       refreshIfReady();
     });

@@ -109,13 +109,23 @@ function showRecentTrendDashboard() {
   // 아니라 그 날 찍힌 모든 당일현황 스냅샷을 매체/보종/날짜별로 모아 시간순으로 함께 보낸다.
   var daySnapshots = buildDaySnapshots_(logs, daysSet);
 
+  // "당일 시간대별 현황" 탭용: days/daysSet(최종마감 추이용, 조회일 전날까지만 포함)와는 별도로
+  // 조회일(=당일) 하루치 당일현황 스냅샷만 매체/보종별로 모아 시간순으로 보낸다. 최종마감
+  // 추이 쪽 daysSet에 조회일을 섞어 넣으면 조정사항 분석 탭(days 인덱스를 기준으로 전/후를
+  // 계산)이 깨지므로 완전히 분리된 구조로 만든다.
+  var todayDateStr = Utilities.formatDate(refDate, TIMEZONE, "yyyy-MM-dd");
+  var todaySnapshots = buildTodaySnapshots_(logs, todayDateStr);
+
   var payload = {
     days: days,
     mediaGroups: mediaGroups,
     defaultDays: TREND_DASHBOARD_DEFAULT_DAYS,
     adjustments: adjustments,
     defaultCompareWindow: TREND_COMPARE_WINDOW_DEFAULT_DAYS,
-    daySnapshots: daySnapshots
+    daySnapshots: daySnapshots,
+    todayDate: todayDateStr,
+    todaySnapshots: todaySnapshots,
+    catalogTotalProduct: CATALOG_TOTAL_PRODUCT
   };
 
   var template = HtmlService.createTemplateFromFile('TrendDashboard');
@@ -177,6 +187,45 @@ function buildDaySnapshots_(logs, daysSet) {
         return a.time < b.time ? -1 : (a.time > b.time ? 1 : 0);
       });
     });
+  });
+
+  return result;
+}
+
+// "당일 시간대별 현황" 탭용: 로그 중 todayDateStr(조회일) 하루치만 매체/보종별로 모아 시간순으로
+// 정렬해 반환한다. 당일현황 스냅샷은 saveMonitoringSnapshot()이 버튼 클릭마다 그 시점 시각으로
+// 활성 매체/보종 전체를 한 번에 찍어 남기므로(DA운영설정.gs 참고), 같은 시각 값들은 항상 같은
+// 클릭에서 나온 것으로 봐도 된다 — 프론트에서 여러 매체/보종을 합칠 때 시각을 그대로 합계 기준으로
+// 써도 어긋나지 않는다. 최종마감(00:00)은 항상 전일 날짜로 찍히므로 todayDateStr에는 나타나지
+// 않지만, 혹시를 대비해 명시적으로 제외한다.
+function buildTodaySnapshots_(logs, todayDateStr) {
+
+  var result = {}; // "매체||보종" -> [{time, cost, db}, ...] (시간순 정렬)
+
+  for (var i = 1; i < logs.length; i++) {
+    var logDate = logs[i][0];
+    if (!(logDate instanceof Date)) continue;
+
+    var dateKey = Utilities.formatDate(logDate, TIMEZONE, "yyyy-MM-dd");
+    if (dateKey !== todayDateStr) continue;
+
+    var t = Utilities.formatDate(logDate, TIMEZONE, "HH:mm");
+    if (t === "00:00") continue;
+
+    var media = String(logs[i][1]).trim();
+    var product = String(logs[i][2]).trim();
+    var itemKey = media + "||" + product;
+
+    if (!result[itemKey]) result[itemKey] = [];
+    result[itemKey].push({
+      time: t,
+      cost: Number(logs[i][3]) || 0,
+      db: Number(logs[i][4]) || 0
+    });
+  }
+
+  Object.keys(result).forEach(function(itemKey) {
+    result[itemKey].sort(function(a, b) { return a.time < b.time ? -1 : (a.time > b.time ? 1 : 0); });
   });
 
   return result;
