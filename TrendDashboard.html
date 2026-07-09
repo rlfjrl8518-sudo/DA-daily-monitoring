@@ -194,14 +194,13 @@
     font-weight: 600;
   }
   .avg-cpa-stat {
-    float: right;
     font-weight: 400;
     color: #5f6368;
   }
   .avg-cpa-stat strong {
     color: #1a73e8;
-    font-size: 13px;
-    margin: 0 4px;
+    font-size: 12px;
+    margin: 0 2px;
   }
 </style>
 </head>
@@ -235,9 +234,7 @@
         <div id="costDbChart" class="chart"></div>
       </div>
       <div class="chart-box">
-        <div class="chart-title">DB &amp; 단가(CPA) 추이 (DB: 막대)
-          <span class="avg-cpa-stat">선택 기간 평균 단가 <strong id="avgCpaValue">-</strong><span id="avgCpaBadge"></span></span>
-        </div>
+        <div class="chart-title">DB &amp; 단가(CPA) 추이 (DB: 막대)</div>
         <div id="dbCpaChart" class="chart"></div>
       </div>
     </div>
@@ -249,7 +246,7 @@
             <th>날짜</th>
             <th>비용</th>
             <th>DB</th>
-            <th>단가</th>
+            <th>단가 <span class="avg-cpa-stat">(평균 단가: <strong id="avgCpaValue">-</strong><span id="avgCpaBadge"></span>)</span></th>
           </tr>
         </thead>
         <tbody id="tableBody"></tbody>
