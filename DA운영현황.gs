@@ -67,17 +67,14 @@ function renderFullDashboard() {
 
 // 날짜 하나에 대한 상세 표(날짜 헤더 + 시간대별 매체/보종 비용·DB·단가 + 소계 + 전체합계)를
 // startRow부터 그리고, 이 블록이 차지한 마지막 행(전체합계 행) 번호를 반환한다.
+//
+// 예전에는 셀/행 단위로 setValues·setBackground·setNumberFormat을 그때그때 호출했는데(매체 x
+// 보종 x 시간대만큼, 로그가 쌓일수록 수백~수천 번), Apps Script는 스프레드시트 호출 1건마다
+// 고정 오버헤드가 커서 이게 renderFullDashboard() 전체 실행 시간의 대부분을 차지했다. 그래서
+// 값/배경색/서식을 블록 전체 크기의 2차원 배열로 메모리에서 다 구성한 뒤, 블록 하나당 딱 한 번씩만
+// setValues/setBackgrounds/setNumberFormats/setFontWeights/setFontColors를 호출하도록 바꿨다.
+// 화면에 그려지는 결과(값, 배경색, 굵기, 병합, 테두리)는 이전과 동일하다.
 function renderDateBlock_(dashboardSheet, startRow, dateKey, dayLogs, mediaOrder, activeProducts) {
-
-  var row = startRow;
-
-  dashboardSheet.getRange(row, 1)
-    .setValue(dateKey)
-    .setBackground("#444444")
-    .setFontColor("white")
-    .setFontWeight("bold");
-
-  row++;
 
   var times = [];
 
@@ -109,27 +106,46 @@ function renderDateBlock_(dashboardSheet, startRow, dateKey, dayLogs, mediaOrder
 
   times.forEach(function(t) {
     var label = (t === "00:00") ? "[최종마감]" : t;
-    header1.push(label);
-    header1.push("");
-    header1.push("");
-    header2.push("비용");
-    header2.push("DB");
-    header2.push("단가");
+    header1.push(label, "", "");
+    header2.push("비용", "DB", "단가");
   });
 
-  dashboardSheet.getRange(row, 1, 1, header1.length)
-    .setValues([header1])
-    .setNumberFormat("@");
+  var numCols = header1.length;
 
-  row++;
+  function blankArray(fillValue) { return new Array(numCols).fill(fillValue); }
 
-  dashboardSheet.getRange(row, 1, 1, header2.length)
-    .setValues([header2])
-    .setBackground("#EFEFEF")
-    .setFontWeight("bold")
-    .setHorizontalAlignment("center");
+  // 블록 전체를 담을 2차원 배열들. 실제 시트에는 맨 마지막에 블록당 한 번씩만 써 넣는다.
+  var values = [];
+  var backgrounds = [];
+  var formats = [];
+  var fontWeights = [];
+  var fontColors = [];
 
-  row++;
+  // 날짜 헤더 행
+  var dateRow = blankArray("");
+  dateRow[0] = dateKey;
+  values.push(dateRow);
+  backgrounds.push(blankArray(null));
+  backgrounds[0][0] = "#444444";
+  formats.push(blankArray("General"));
+  fontWeights.push(blankArray("normal"));
+  fontWeights[0][0] = "bold";
+  fontColors.push(blankArray(null));
+  fontColors[0][0] = "white";
+
+  // header1 행 (시간 라벨, 텍스트 서식으로 고정해 "9:00" 같은 값이 시간으로 자동 변환되지 않게 함)
+  values.push(header1.slice());
+  backgrounds.push(blankArray(null));
+  formats.push(blankArray("@"));
+  fontWeights.push(blankArray("normal"));
+  fontColors.push(blankArray(null));
+
+  // header2 행
+  values.push(header2.slice());
+  backgrounds.push(blankArray("#EFEFEF"));
+  formats.push(blankArray("General"));
+  fontWeights.push(blankArray("bold"));
+  fontColors.push(blankArray(null));
 
   var grandCost = {};
   var grandDb = {};
@@ -138,6 +154,9 @@ function renderDateBlock_(dashboardSheet, startRow, dateKey, dayLogs, mediaOrder
     grandCost[t] = 0;
     grandDb[t] = 0;
   });
+
+  var mediaMergeRanges = []; // { rowOffset, rowCount } - 매체명 칸 세로 병합 대상
+  var catalogMergeRanges = []; // { rowOffset, rowCount, costCol, cpaCol } - 카탈로그 비용/단가 칸 세로 병합 대상
 
   mediaOrder.forEach(function(media) {
 
@@ -161,16 +180,22 @@ function renderDateBlock_(dashboardSheet, startRow, dateKey, dayLogs, mediaOrder
     });
 
     var isCatalogMedia = CATALOG_MEDIA.indexOf(media) !== -1;
-    var mediaStartRow = row;
+    var mediaStartOffset = values.length;
 
     mediaRows.forEach(function(item) {
 
       var rowData = [item.media, item.product];
+      var rowBg = blankArray(null);
+      var rowFmt = blankArray("General");
+
+      var dataCol = 2; // 0-based, 이 시간대의 "비용" 칸부터
 
       times.forEach(function(t) {
 
         var key = t + "_" + item.media + "_" + item.product;
         var found = logMap[key];
+
+        var costVal = "", dbVal = "", cpaVal = "";
 
         if (found) {
           var db = Number(found[4]) || 0;
@@ -180,70 +205,52 @@ function renderDateBlock_(dashboardSheet, startRow, dateKey, dayLogs, mediaOrder
           // 뒤 CATALOG_TOTAL_PRODUCT 로그를 이용해 비용/단가 칸을 세로 병합해서 채워 넣는다
           // (아래 "카탈로그형 매체는 보종별 행에..." 블록 참고).
           if (isCatalogMedia) {
-            rowData.push("");
-            rowData.push(db);
-            rowData.push("");
-
+            dbVal = db;
             mediaDb[t] += db;
             grandDb[t] += db;
           } else {
             var cost = Number(found[3]) || 0;
             var cpa = Number(found[5]) || 0;
 
-            rowData.push(cost);
-            rowData.push(db);
-            rowData.push(cpa);
+            costVal = cost;
+            dbVal = db;
+            cpaVal = cpa;
 
             mediaCost[t] += cost;
             mediaDb[t] += db;
             grandCost[t] += cost;
             grandDb[t] += db;
           }
-        } else {
-          rowData.push("");
-          rowData.push("");
-          rowData.push("");
         }
 
-      });
+        rowData.push(costVal, dbVal, cpaVal);
+        rowFmt[dataCol] = "#,##0";
+        rowFmt[dataCol + 1] = "#,##0";
+        rowFmt[dataCol + 2] = "#,##0";
 
-      dashboardSheet.getRange(row, 1, 1, rowData.length).setValues([rowData]);
-
-      // 숫자 서식 적용 (C열부터)
-      dashboardSheet.getRange(row, 3, 1, rowData.length - 2).setNumberFormat("#,##0");
-
-      var dataIndex = 4;
-      var sheetCol = 5;
-
-      times.forEach(function(t) {
-        var cpaValue = Number(rowData[dataIndex]);
-
-        if (!isNaN(cpaValue) && cpaValue > 0) {
-          var cell = dashboardSheet.getRange(row, sheetCol);
-
-          if (cpaValue <= item.targetCPA) {
-            cell.setBackground("#B6D7A8");
-          } else if (cpaValue <= item.targetCPA * 1.2) {
-            cell.setBackground("#FFD966");
+        if (typeof cpaVal === "number" && cpaVal > 0) {
+          if (cpaVal <= item.targetCPA) {
+            rowBg[dataCol + 2] = "#B6D7A8";
+          } else if (cpaVal <= item.targetCPA * 1.2) {
+            rowBg[dataCol + 2] = "#FFD966";
           } else {
-            cell.setBackground("#EA9999");
+            rowBg[dataCol + 2] = "#EA9999";
           }
         }
 
-        dataIndex += 3;
-        sheetCol += 3;
+        dataCol += 3;
       });
 
-      row++;
+      values.push(rowData);
+      backgrounds.push(rowBg);
+      formats.push(rowFmt);
+      fontWeights.push(blankArray("normal"));
+      fontColors.push(blankArray(null));
 
     });
 
     if (mediaRows.length > 1) {
-      dashboardSheet.getRange(mediaStartRow, 1, mediaRows.length, 1)
-        .mergeVertically()
-        .setVerticalAlignment("middle")
-        .setHorizontalAlignment("center")
-        .setFontWeight("bold");
+      mediaMergeRanges.push({ rowOffset: mediaStartOffset, rowCount: mediaRows.length });
     }
 
     // 카탈로그형 매체는 보종별 행에 비용을 넣지 않았으므로, CATALOG_TOTAL_PRODUCT로 별도
@@ -251,7 +258,7 @@ function renderDateBlock_(dashboardSheet, startRow, dateKey, dayLogs, mediaOrder
     // 아울러 보종별 행의 비용/단가 칸을 매체명 칸처럼 세로 병합해서, 빈칸으로 휑하게 두는 대신
     // 그 병합된 자리에 매체 전체 비용/CPA를 한 번만 표시한다.
     if (isCatalogMedia) {
-      var catalogSheetCol = 5; // 첫 시간대의 "단가" 컬럼(= "비용" 컬럼 + 2)부터 시작
+      var catalogDataCol = 2; // 0-based, 첫 시간대의 "비용" 칸부터
 
       times.forEach(function(t) {
         var totalFound = logMap[t + "_" + media + "_" + CATALOG_TOTAL_PRODUCT];
@@ -259,90 +266,128 @@ function renderDateBlock_(dashboardSheet, startRow, dateKey, dayLogs, mediaOrder
         if (totalFound) {
           var totalCost = Number(totalFound[3]) || 0;
           var totalCpa = Number(totalFound[5]) || 0;
-          var costCol = catalogSheetCol - 2;
-          var cpaCol = catalogSheetCol;
+          var costCol = catalogDataCol;
+          var cpaCol = catalogDataCol + 2;
 
-          var costRange = dashboardSheet.getRange(mediaStartRow, costCol, mediaRows.length, 1);
-          var cpaRange = dashboardSheet.getRange(mediaStartRow, cpaCol, mediaRows.length, 1);
-
-          if (mediaRows.length > 1) {
-            costRange.mergeVertically();
-            cpaRange.mergeVertically();
+          for (var r = 0; r < mediaRows.length; r++) {
+            values[mediaStartOffset + r][costCol] = totalCost;
+            values[mediaStartOffset + r][cpaCol] = totalCpa;
           }
-
-          costRange.setValue(totalCost).setVerticalAlignment("middle").setHorizontalAlignment("right").setNumberFormat("#,##0");
-          cpaRange.setValue(totalCpa).setVerticalAlignment("middle").setHorizontalAlignment("right").setNumberFormat("#,##0");
 
           // 보종별 행 루프에서는 이 시점에 비용/단가가 아직 비어 있어(위쪽 참고) 목표CPA 배경색을
           // 못 칠했으므로, 실제 값이 채워진 지금 여기서 매체 전체 CPA 기준으로 칠한다. 보종마다
           // 목표CPA가 다를 수 있지만 대표로 첫 보종의 목표CPA를 기준으로 삼는다.
           if (totalCpa > 0 && mediaRows.length > 0) {
             var catalogTargetCPA = mediaRows[0].targetCPA;
+            var bgColor = null;
 
-            if (catalogTargetCPA <= 0) {
-              // 목표CPA가 없으면 색칠하지 않는다.
-            } else if (totalCpa <= catalogTargetCPA) {
-              cpaRange.setBackground("#B6D7A8");
-            } else if (totalCpa <= catalogTargetCPA * 1.2) {
-              cpaRange.setBackground("#FFD966");
-            } else {
-              cpaRange.setBackground("#EA9999");
+            if (catalogTargetCPA > 0) {
+              bgColor = totalCpa <= catalogTargetCPA
+                ? "#B6D7A8"
+                : (totalCpa <= catalogTargetCPA * 1.2 ? "#FFD966" : "#EA9999");
             }
+
+            if (bgColor) {
+              for (var r2 = 0; r2 < mediaRows.length; r2++) {
+                backgrounds[mediaStartOffset + r2][cpaCol] = bgColor;
+              }
+            }
+          }
+
+          if (mediaRows.length > 1) {
+            catalogMergeRanges.push({ rowOffset: mediaStartOffset, rowCount: mediaRows.length, costCol: costCol, cpaCol: cpaCol });
           }
 
           mediaCost[t] += totalCost;
           grandCost[t] += totalCost;
         }
 
-        catalogSheetCol += 3;
+        catalogDataCol += 3;
       });
     }
 
     var subtotal = [media + " 소계", ""];
+    var subtotalFmt = blankArray("General");
 
-    times.forEach(function(t) {
+    times.forEach(function(t, idx) {
       var cost = mediaCost[t];
       var db = mediaDb[t];
-      subtotal.push(cost);
-      subtotal.push(db);
-      subtotal.push(db > 0 ? Math.round(cost / db) : "");
+      subtotal.push(cost, db, db > 0 ? Math.round(cost / db) : "");
+
+      var c = 2 + idx * 3;
+      subtotalFmt[c] = "#,##0";
+      subtotalFmt[c + 1] = "#,##0";
+      subtotalFmt[c + 2] = "#,##0";
     });
 
-    dashboardSheet.getRange(row, 1, 1, subtotal.length)
-      .setValues([subtotal])
-      .setBackground("#EAEAEA")
-      .setFontWeight("bold");
-
-    // 숫자 서식 적용 (C열부터)
-    dashboardSheet.getRange(row, 3, 1, subtotal.length - 2).setNumberFormat("#,##0");
-
-    row++;
+    values.push(subtotal);
+    backgrounds.push(blankArray("#EAEAEA"));
+    formats.push(subtotalFmt);
+    fontWeights.push(blankArray("bold"));
+    fontColors.push(blankArray(null));
 
   });
 
   var totalRow = ["전체합계", ""];
+  var totalFmt = blankArray("General");
 
-  times.forEach(function(t) {
+  times.forEach(function(t, idx) {
     var cost = grandCost[t];
     var db = grandDb[t];
-    totalRow.push(cost);
-    totalRow.push(db);
-    totalRow.push(db > 0 ? Math.round(cost / db) : "");
+    totalRow.push(cost, db, db > 0 ? Math.round(cost / db) : "");
+
+    var c = 2 + idx * 3;
+    totalFmt[c] = "#,##0";
+    totalFmt[c + 1] = "#,##0";
+    totalFmt[c + 2] = "#,##0";
   });
 
-  dashboardSheet.getRange(row, 1, 1, totalRow.length)
-    .setValues([totalRow])
-    .setBackground("#D9EAD3")
-    .setFontWeight("bold");
+  values.push(totalRow);
+  backgrounds.push(blankArray("#D9EAD3"));
+  formats.push(totalFmt);
+  fontWeights.push(blankArray("bold"));
+  fontColors.push(blankArray(null));
 
-  // 숫자 서식 적용 (C열부터)
-  dashboardSheet.getRange(row, 3, 1, totalRow.length - 2).setNumberFormat("#,##0");
+  var numRows = values.length;
+  var endRow = startRow + numRows - 1;
+
+  // 블록 전체를 값/배경색/서식/굵기/글자색 각각 딱 한 번씩만 써서 반영한다.
+  var blockRange = dashboardSheet.getRange(startRow, 1, numRows, numCols);
+  blockRange.setValues(values);
+  blockRange.setBackgrounds(backgrounds);
+  blockRange.setNumberFormats(formats);
+  blockRange.setFontWeights(fontWeights);
+  blockRange.setFontColors(fontColors);
+
+  // header2 행만 가운데 정렬 (기존과 동일)
+  dashboardSheet.getRange(startRow + 2, 1, 1, numCols).setHorizontalAlignment("center");
+
+  // 매체명 칸 세로 병합 (매체당 보종이 2개 이상일 때만)
+  mediaMergeRanges.forEach(function(m) {
+    dashboardSheet.getRange(startRow + m.rowOffset, 1, m.rowCount, 1)
+      .mergeVertically()
+      .setVerticalAlignment("middle")
+      .setHorizontalAlignment("center")
+      .setFontWeight("bold");
+  });
+
+  // 카탈로그형 매체 비용/단가 칸 세로 병합
+  catalogMergeRanges.forEach(function(m) {
+    dashboardSheet.getRange(startRow + m.rowOffset, m.costCol + 1, m.rowCount, 1)
+      .mergeVertically()
+      .setVerticalAlignment("middle")
+      .setHorizontalAlignment("right");
+    dashboardSheet.getRange(startRow + m.rowOffset, m.cpaCol + 1, m.rowCount, 1)
+      .mergeVertically()
+      .setVerticalAlignment("middle")
+      .setHorizontalAlignment("right");
+  });
 
   // 날짜 표시 행(제목 줄)은 제외하고, 그 아래 실제 표 부분에만 옅은 회색 격자 테두리를 그린다.
-  dashboardSheet.getRange(startRow + 1, 1, row - startRow, header1.length)
+  dashboardSheet.getRange(startRow + 1, 1, numRows - 1, numCols)
     .setBorder(true, true, true, true, true, true, "#D9D9D9", SpreadsheetApp.BorderStyle.SOLID);
 
-  return row; // 이 블록의 마지막 행(전체합계 행)
+  return endRow; // 이 블록의 마지막 행(전체합계 행)
 }
 
 // 설정 시트 원본 데이터에서 매체 정렬 순서 / 매체·보종·목표CPA 목록을 뽑아낸다
