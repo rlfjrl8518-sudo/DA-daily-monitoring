@@ -268,21 +268,24 @@ function saveMonitoringSnapshot_final() {
 
 }
 
-// 당일현황 버튼: DB_RAW 기준으로 "조회일" 스냅샷을 로그에 적재하고, 로그 전체를 기준으로
-// 대시보드를 처음부터 다시 그린다. 추이 대시보드 팝업은 여기서 자동으로 뜨지 않는다
-// (DA운영현황 시트 상단에 별도로 놓은 버튼(그림)에서 showRecentTrendDashboard를 직접 호출해서 연다).
+// 당일현황 버튼: DB_RAW 기준으로 "조회일" 스냅샷을 로그에 적재하고, 대시보드는 최근
+// DASHBOARD_RECENT_WINDOW_DAYS일 구간만 다시 그린다(renderRecentDashboard, DA운영현황.gs 참고).
+// 과거 로그를 직접 수정한 경우엔 메뉴의 "전체 기간 재검증"을 별도로 실행해야 한다. 추이 대시보드
+// 팝업은 여기서 자동으로 뜨지 않는다(DA운영현황 시트 상단에 별도로 놓은 버튼(그림)에서
+// showRecentTrendDashboard를 직접 호출해서 연다).
 function updateDAReport() {
   saveMonitoringSnapshot();
-  renderFullDashboard();
+  renderRecentDashboard();
 }
 
 // 전일마감 버튼: DB_RAW 기준으로 "전일" 최종마감 스냅샷을 로그에 적재(기존 00:00 행 교체)하고,
-// 로그 전체를 기준으로 대시보드를 처음부터 다시 그린다. 월요일에 금/토/일을 몰아 처리할 때는
-// 전일 셀 값을 바꿔가며 이 함수를 순서대로 여러 번 실행한다. 추이 대시보드 팝업은 여기서
-// 자동으로 뜨지 않는다.
+// 대시보드는 최근 DASHBOARD_RECENT_WINDOW_DAYS일 구간만 다시 그린다. 월요일에 금/토/일을 몰아
+// 처리할 때는 전일 셀 값을 바꿔가며 이 함수를 순서대로 여러 번 실행하는데, 그 3일 모두 최근
+// 구간(기본 7일) 안에 들어오므로 매번 정상적으로 갱신된다. 추이 대시보드 팝업은 여기서 자동으로
+// 뜨지 않는다.
 function updateDAReport_final() {
   saveMonitoringSnapshot_final();
-  renderFullDashboard();
+  renderRecentDashboard();
 }
 
 // 조정사항 인덱스(매체별 보종별 조정 기록)를 DA운영설정 시트 안에 별도 컬럼으로 마련한다.
