@@ -7,6 +7,16 @@ var TIMEZONE = "Asia/Seoul";
 var DASHBOARD_TOP_RESERVED_ROWS = 3;
 var DASHBOARD_DETAIL_BASE_ROW = DASHBOARD_TOP_RESERVED_ROWS + 1;
 
+// renderRecentDashboard()가 매번 다시 그리는 "최근" 구간의 폭(오늘 포함 며칠). 전일 마감이
+// 다루는 범위(최대 금/토/일=3일 전)보다 넉넉하게 잡아둔다.
+var DASHBOARD_RECENT_WINDOW_DAYS = 7;
+
+// renderRecentDashboard()가 "여기까지는 이미 확정해서 그려둔 과거 블록"이라고 기억해두는
+// 경계값을 Document Properties에 저장할 때 쓰는 키. nextRow는 확정 블록 바로 다음(새 블록이
+// 시작될) 행 번호, lastDate는 마지막으로 확정한 날짜(yyyy-MM-dd)다.
+var DASH_ARCHIVE_NEXT_ROW_PROP = "DASH_ARCHIVE_NEXT_ROW";
+var DASH_ARCHIVE_LAST_DATE_PROP = "DASH_ARCHIVE_LAST_DATE";
+
 // DA운영설정 시트 로그(L~Q열) 전체를 날짜별로 묶어서, 대시보드 상세 영역(4행부터 시트 끝까지)을
 // 통째로 지우고 처음부터 다시 그린다.
 //
@@ -49,6 +59,10 @@ function renderFullDashboard() {
   var dateKeys = Object.keys(dateMap).sort(); // 오래된 -> 최신
   _perfLog("날짜별 로그 그룹핑 (" + dateKeys.length + "일)", tDateMap);
 
+  var cutoff = computeRecentCutoff_();
+  var archiveDateKeys = dateKeys.filter(function(dk) { return dk < cutoff; });
+  var recentDateKeys = dateKeys.filter(function(dk) { return dk >= cutoff; });
+
   var tClear = Date.now();
   var lastRowNum = dashboardSheet.getLastRow();
   if (lastRowNum >= DASHBOARD_DETAIL_BASE_ROW) {
@@ -58,7 +72,134 @@ function renderFullDashboard() {
   _perfLog("기존 상세 영역 지우기 (" + lastRowNum + "행)", tClear);
 
   var tRender = Date.now();
-  var row = DASHBOARD_DETAIL_BASE_ROW;
+
+  // 과거(archiveDateKeys)와 최근(recentDateKeys)을 나눠서 그리는 것 자체는 renderFullDashboard()
+  // 입장에서는 전체를 다 그리는 것과 결과가 똑같지만, 이렇게 나눠 그려야 그 경계(archive가 끝나는
+  // 행/날짜)를 renderRecentDashboard()가 이어받을 수 있도록 저장해둘 수 있다. 즉 "전체 기간
+  // 재검증"을 수동 실행한 뒤에도 다음 번 자동 갱신(renderRecentDashboard)이 정확한 경계에서부터
+  // 이어서 동작하게 하기 위함이다.
+  var cursor = renderDateBlocks_(dashboardSheet, DASHBOARD_DETAIL_BASE_ROW, archiveDateKeys, dateMap, mediaOrder, activeProducts);
+  saveArchiveState_(cursor, archiveDateKeys.length > 0 ? archiveDateKeys[archiveDateKeys.length - 1] : "");
+  renderDateBlocks_(dashboardSheet, cursor, recentDateKeys, dateMap, mediaOrder, activeProducts);
+
+  _perfLog("날짜 블록 " + dateKeys.length + "개 렌더링", tRender);
+
+  var tWidths = Date.now();
+  applyColumnWidths_(dashboardSheet);
+  _perfLog("컬럼 너비 적용", tWidths);
+
+  Logger.log("renderFullDashboard 전체: " + (Date.now() - tStart) + "ms");
+}
+
+// updateDAReport()/updateDAReport_final()(당일 현황 업데이트 / 전일 마감 버튼)에서 매번 호출되는
+// 빠른 갱신 경로. renderFullDashboard()처럼 로그 전체를 매번 처음부터 다시 그리는 대신, 이미
+// DASHBOARD_RECENT_WINDOW_DAYS일보다 오래돼 확정된 과거 블록은 그대로 두고, 최근 구간만 지우고
+// 다시 그린다. 전일 마감은 최대 "금/토/일"(3일 전)까지만 다루므로 7일 윈도우면 여유 있게 커버된다.
+//
+// 과거에 이미 확정된(archiveState.nextRow 이전) 블록은 절대 다시 지우거나 옮기지 않는다 — 예전에
+// "최근 32일만 갱신" 방식에서 블록 높이가 실행마다 달라지며 위치가 밀려 중복 표시로 이어졌던
+// 문제는, 매번 위치를 다시 "추정"했기 때문이었다. 여기서는 위치를 추정하지 않고, 실제로 그 위치에
+// 그려 넣은 결과(cursor)를 그대로 저장해두므로 밀림이 누적될 수 없다.
+//
+// 주의: 과거 로그(7일보다 오래된 날짜)를 직접 수정한 경우 이 경로로는 반영되지 않는다. 그런
+// 경우엔 메뉴의 "전체 기간 재검증"(renderFullDashboard)을 수동으로 한 번 실행해야 한다.
+function renderRecentDashboard() {
+
+  var tStart = Date.now();
+
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var dashboardSheet = ss.getSheetByName(DASH_SHEET_NAME);
+  var settingSheet = ss.getSheetByName(SETTING_SHEET_NAME);
+
+  var settings = settingSheet.getDataRange().getValues();
+  var lastSettingRow = settingSheet.getLastRow();
+  var logs = settingSheet.getRange(1, 12, lastSettingRow, 6).getValues();
+  _perfLog("설정/로그 읽기 (로그 " + logs.length + "행)", tStart);
+
+  var meta = getMediaAndProducts_(settings);
+  var mediaOrder = meta.mediaOrder;
+  var activeProducts = meta.activeProducts;
+
+  var dateMap = {};
+
+  for (var i = 1; i < logs.length; i++) {
+    var logDate = logs[i][0];
+    if (!(logDate instanceof Date)) continue;
+
+    var dateKey = Utilities.formatDate(logDate, TIMEZONE, "yyyy-MM-dd");
+    if (!dateMap[dateKey]) dateMap[dateKey] = [];
+    dateMap[dateKey].push(logs[i]);
+  }
+
+  var dateKeys = Object.keys(dateMap).sort();
+
+  var cutoff = computeRecentCutoff_();
+  var archiveState = getArchiveState_();
+
+  // 지난 실행 때 이미 확정한(archiveState.lastDate 이하) 날짜는 다시 손대지 않고, 그 사이 7일
+  // 밖으로 새로 밀려난 날짜만 이번에 한 번 더 그려서 확정한다.
+  var newlyArchivedDateKeys = dateKeys.filter(function(dk) {
+    return dk < cutoff && (!archiveState.lastDate || dk > archiveState.lastDate);
+  });
+  var recentDateKeys = dateKeys.filter(function(dk) { return dk >= cutoff; });
+
+  var tClear = Date.now();
+  var lastRowNum = dashboardSheet.getLastRow();
+  if (lastRowNum >= archiveState.nextRow) {
+    var maxCol = dashboardSheet.getMaxColumns();
+    dashboardSheet.getRange(archiveState.nextRow, 1, lastRowNum - archiveState.nextRow + 1, maxCol).clear();
+  }
+  _perfLog("최근 구간만 지우기 (" + Math.max(lastRowNum - archiveState.nextRow + 1, 0) + "행)", tClear);
+
+  var tRender = Date.now();
+  var cursor = archiveState.nextRow;
+
+  if (newlyArchivedDateKeys.length > 0) {
+    cursor = renderDateBlocks_(dashboardSheet, cursor, newlyArchivedDateKeys, dateMap, mediaOrder, activeProducts);
+    saveArchiveState_(cursor, newlyArchivedDateKeys[newlyArchivedDateKeys.length - 1]);
+  }
+
+  renderDateBlocks_(dashboardSheet, cursor, recentDateKeys, dateMap, mediaOrder, activeProducts);
+  _perfLog("최근 " + recentDateKeys.length + "일(+ 신규 확정 " + newlyArchivedDateKeys.length + "일) 렌더링", tRender);
+
+  applyColumnWidths_(dashboardSheet);
+
+  Logger.log("renderRecentDashboard 전체: " + (Date.now() - tStart) + "ms");
+}
+
+// "오늘" 기준으로 최근 DASHBOARD_RECENT_WINDOW_DAYS일의 시작 날짜(포함)를 구한다. 이 날짜보다
+// 이전(<)은 "확정 가능한 과거", 이후(>=)는 "매번 다시 그리는 최근"으로 취급한다.
+function computeRecentCutoff_() {
+  var today = new Date();
+  var cutoffDate = new Date(today);
+  cutoffDate.setDate(cutoffDate.getDate() - (DASHBOARD_RECENT_WINDOW_DAYS - 1));
+  return Utilities.formatDate(cutoffDate, TIMEZONE, "yyyy-MM-dd");
+}
+
+// renderRecentDashboard()가 기억해둔 "여기까지는 이미 확정된 과거 블록" 경계를 읽어온다. 저장된
+// 값이 없으면(최초 실행, 혹은 이 기능 도입 전 데이터) 대시보드가 비어있는 것으로 취급해 처음부터
+// 다시 그리게 한다.
+function getArchiveState_() {
+  var props = PropertiesService.getDocumentProperties();
+  var nextRowStr = props.getProperty(DASH_ARCHIVE_NEXT_ROW_PROP);
+  var lastDate = props.getProperty(DASH_ARCHIVE_LAST_DATE_PROP);
+
+  return {
+    nextRow: nextRowStr ? Number(nextRowStr) : DASHBOARD_DETAIL_BASE_ROW,
+    lastDate: lastDate || null
+  };
+}
+
+function saveArchiveState_(nextRow, lastDate) {
+  var props = PropertiesService.getDocumentProperties();
+  props.setProperty(DASH_ARCHIVE_NEXT_ROW_PROP, String(nextRow));
+  props.setProperty(DASH_ARCHIVE_LAST_DATE_PROP, lastDate || "");
+}
+
+// dateKeys를 startRow부터 순서대로 렌더링하고, 다음 블록이 이어질 행(마지막 블록 뒤 여백 포함)을
+// 반환한다. renderFullDashboard()/renderRecentDashboard()가 공유해서 쓴다.
+function renderDateBlocks_(dashboardSheet, startRow, dateKeys, dateMap, mediaOrder, activeProducts) {
+  var row = startRow;
 
   dateKeys.forEach(function(dateKey) {
     var endRow = renderDateBlock_(dashboardSheet, row, dateKey, dateMap[dateKey], mediaOrder, activeProducts);
@@ -69,13 +210,8 @@ function renderFullDashboard() {
 
     row = endRow + 3;
   });
-  _perfLog("날짜 블록 " + dateKeys.length + "개 렌더링", tRender);
 
-  var tWidths = Date.now();
-  applyColumnWidths_(dashboardSheet);
-  _perfLog("컬럼 너비 적용", tWidths);
-
-  Logger.log("renderFullDashboard 전체: " + (Date.now() - tStart) + "ms");
+  return row;
 }
 
 // 날짜 하나에 대한 상세 표(날짜 헤더 + 시간대별 매체/보종 비용·DB·단가 + 소계 + 전체합계)를
