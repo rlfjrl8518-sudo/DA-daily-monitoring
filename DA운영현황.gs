@@ -134,13 +134,15 @@ function renderDateBlock_(dashboardSheet, startRow, dateKey, dayLogs, mediaOrder
   var fontWeights = [];
   var fontColors = [];
 
-  // 날짜 헤더 행
+  // 날짜 헤더 행 (dateKey는 "yyyy-MM-dd" 문자열인데, "General" 서식으로 두면 시트가 이를
+  // 날짜로 자동 인식해 46213 같은 시리얼 넘버로 표시해버려서, header1의 시간 라벨처럼
+  // 텍스트 서식("@")으로 고정해 문자열 그대로 보이게 한다)
   var dateRow = blankArray("");
   dateRow[0] = dateKey;
   values.push(dateRow);
   backgrounds.push(blankArray(null));
   backgrounds[0][0] = "#444444";
-  formats.push(blankArray("General"));
+  formats.push(blankArray("@"));
   fontWeights.push(blankArray("normal"));
   fontWeights[0][0] = "bold";
   fontColors.push(blankArray(null));
