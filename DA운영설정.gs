@@ -148,6 +148,9 @@ function saveMonitoringSnapshot() {
 
   var tWrite = Date.now();
   settingSheet.getRange(startRow, 12, results.length, 6).setValues(results);
+  // L열(로그 날짜)에 새로 확장된 행은 서식이 비어 있거나 "숫자"로 남아있어 Date 값이
+  // 46212 같은 시리얼 넘버로 표시되는 문제가 있어, 쓸 때마다 날짜 서식을 명시적으로 고정한다.
+  settingSheet.getRange(startRow, 12, results.length, 1).setNumberFormat("yyyy-mm-dd hh:mm:ss");
   _perfLog("로그 " + results.length + "건 쓰기", tWrite);
 
   Logger.log(results.length + "건 저장 완료 (전체 " + (Date.now() - tStart) + "ms)");
@@ -256,6 +259,9 @@ function saveMonitoringSnapshot_final() {
 
   var tWrite = Date.now();
   settingSheet.getRange(startRow, 12, results.length, 6).setValues(results);
+  // L열(로그 날짜)에 새로 확장된 행은 서식이 비어 있거나 "숫자"로 남아있어 Date 값이
+  // 46212 같은 시리얼 넘버로 표시되는 문제가 있어, 쓸 때마다 날짜 서식을 명시적으로 고정한다.
+  settingSheet.getRange(startRow, 12, results.length, 1).setNumberFormat("yyyy-mm-dd hh:mm:ss");
   _perfLog("로그 " + results.length + "건 쓰기", tWrite);
 
   Logger.log(results.length + "건 최종마감 저장 완료 (전체 " + (Date.now() - tStart) + "ms)");
@@ -344,6 +350,23 @@ function setupAdjustmentLogColumns() {
   Logger.log("조정사항 인덱스 컬럼을 " + startCol + "번째 컬럼부터 설정했습니다.");
 }
 
+// L열(로그 날짜)에 이미 찍혀 있던 값들이 서식 누락으로 46212 같은 시리얼 넘버로 보이는
+// 기존 문제를 한 번에 복구한다. saveMonitoringSnapshot()/saveMonitoringSnapshot_final()이
+// 이제 매번 서식을 고정하므로, 이 함수는 과거에 이미 잘못 찍힌 행들을 위한 1회성 복구용이다.
+function fixLogDateFormat() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var settingSheet = ss.getSheetByName(SETTING_SHEET_NAME);
+
+  var lastRow = settingSheet.getLastRow();
+  if (lastRow < 2) {
+    Logger.log("복구할 로그 행이 없습니다.");
+    return;
+  }
+
+  settingSheet.getRange(2, 12, lastRow - 1, 1).setNumberFormat("yyyy-mm-dd hh:mm:ss");
+  Logger.log("L열 날짜 서식을 " + (lastRow - 1) + "행에 복구했습니다.");
+}
+
 function onOpen() {
   SpreadsheetApp.getUi()
     .createMenu('DA 대시보드')
@@ -353,5 +376,6 @@ function onOpen() {
     .addItem('최근 ' + TREND_DASHBOARD_DEFAULT_DAYS + '일 추이 대시보드 보기', 'showRecentTrendDashboard')
     .addSeparator()
     .addItem('조정사항 인덱스 설정 (최초 1회)', 'setupAdjustmentLogColumns')
+    .addItem('로그 날짜 서식 복구 (1회성)', 'fixLogDateFormat')
     .addToUi();
 }
