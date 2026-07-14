@@ -224,7 +224,7 @@
   <div class="tabs">
     <button type="button" class="tab-btn active" data-tab="trend">추이</button>
     <button type="button" class="tab-btn" data-tab="adjust">조정사항 분석</button>
-    <button type="button" class="tab-btn" data-tab="today">당일 시간대별 현황</button>
+    <button type="button" class="tab-btn" data-tab="today">시간대별 현황</button>
   </div>
 
   <div id="tab-trend">
@@ -326,16 +326,17 @@
 
   <div id="tab-today" style="display:none;">
     <div class="adjust-controls">
-      <span id="todayDateLabel"></span>
+      <label for="todayDateSelect">조회 날짜</label>
+      <select id="todayDateSelect" style="max-width:160px;"></select>
     </div>
 
     <div class="charts">
       <div class="chart-box">
-        <div class="chart-title">당일 비용 &amp; DB 추이 (비용: 막대)</div>
+        <div class="chart-title">시간대별 비용 &amp; DB 추이 (비용: 막대)</div>
         <div id="todayCostDbChart" class="chart"></div>
       </div>
       <div class="chart-box">
-        <div class="chart-title">당일 DB &amp; 단가(CPA) 추이 (DB: 막대)</div>
+        <div class="chart-title">시간대별 DB &amp; 단가(CPA) 추이 (DB: 막대)</div>
         <div id="todayDbCpaChart" class="chart"></div>
       </div>
     </div>
@@ -830,16 +831,19 @@
     drawCharts(computeGroupedSeries()); // 그래프: 항목별로 나눠서 각각의 추이를 비교
   }
 
-  // 당일(조회일) 시간대별 스냅샷을 매체/보종 필터에 맞는 항목들끼리 시각 단위로 합산한 표 데이터를
-  // 만든다. 당일현황 버튼은 클릭마다 활성 매체/보종 전체를 같은 시각으로 한 번에 찍으므로(서버
-  // buildTodaySnapshots_ 참고), 서로 다른 항목이라도 같은 시각 값끼리는 그대로 더해도 어긋나지 않는다.
+  // 선택한 날짜(조회일 포함, todayDateSelect)의 시간대별 스냅샷을 매체/보종 필터에 맞는 항목들끼리
+  // 시각 단위로 합산한 표 데이터를 만든다. 당일현황 버튼은 클릭마다 활성 매체/보종 전체를 같은
+  // 시각으로 한 번에 찍으므로(서버 buildDaySnapshots_ 참고), 서로 다른 항목이라도 같은 시각 값끼리는
+  // 그대로 더해도 어긋나지 않는다.
   function computeTodayTotalSeries() {
+    var selectedDate = document.getElementById('todayDateSelect').value;
     var matchedItems = getMatchedItems();
     var byTime = {};
     var timesSet = {};
 
     matchedItems.forEach(function(item) {
-      var snaps = DATA.todaySnapshots[item.media + '||' + item.snapshotProduct] || [];
+      var byDate = DATA.daySnapshots[item.media + '||' + item.snapshotProduct] || {};
+      var snaps = byDate[selectedDate] || [];
       snaps.forEach(function(s) {
         timesSet[s.time] = true;
         if (!byTime[s.time]) byTime[s.time] = { cost: 0, db: 0 };
@@ -865,9 +869,10 @@
   }
 
   // 그래프용: computeGroupedSeries()와 같은 방식(필터 없으면 전체 하나로, 있으면 보종별 또는
-  // 매체별로 나눠서)으로 당일 시간대별 시리즈를 만든다. drawComboChart가 그대로 재사용할 수
+  // 매체별로 나눠서)으로 선택한 날짜의 시간대별 시리즈를 만든다. drawComboChart가 그대로 재사용할 수
   // 있도록 { days, series } 형태를 맞추되, days 자리에는 날짜 대신 시각("HH:mm")이 들어간다.
   function computeTodayGroupedSeries() {
+    var selectedDate = document.getElementById('todayDateSelect').value;
     var mediaSet = toSet(mediaMultiSelect.getSelected());
     var productSet = toSet(productMultiSelect.getSelected());
     var mediaFilterOn = Object.keys(mediaSet).length > 0;
@@ -883,7 +888,8 @@
     var timesSet = {};
 
     function addSnapshots(label, snapshotKey) {
-      var snaps = DATA.todaySnapshots[snapshotKey] || [];
+      var byDate = DATA.daySnapshots[snapshotKey] || {};
+      var snaps = byDate[selectedDate] || [];
       if (snaps.length === 0) return;
       if (!seriesMap[label]) { seriesMap[label] = {}; seriesOrder.push(label); }
       snaps.forEach(function(s) {
@@ -929,7 +935,8 @@
     body.innerHTML = '';
 
     if (rows.length === 0 || rows.every(function(r) { return !r.hasData; })) {
-      body.innerHTML = '<tr><td colspan="4" class="empty">오늘(' + DATA.todayDate + ') 당일현황 데이터가 없습니다.</td></tr>';
+      var selectedDate = document.getElementById('todayDateSelect').value;
+      body.innerHTML = '<tr><td colspan="4" class="empty">' + selectedDate + ' 당일현황 데이터가 없습니다.</td></tr>';
       return;
     }
 
@@ -953,8 +960,27 @@
     drawComboChart('todayDbCpaChart', grouped, 'db', 'cpa', 'DB', '단가', SINGLE_SERIES_COLORS.db, SINGLE_SERIES_COLORS.cpa, todayXLabel);
   }
 
+  // todayDateSelect 옵션을 (조회일부터 과거 방향으로) 채운다. 조회일이 기본 선택값이고,
+  // 그 뒤로 최종마감 추이와 같은 기간(DATA.days, 최근 것부터)을 이어 붙인다.
+  var todayDateSelect = document.getElementById('todayDateSelect');
+  var todayDateOptionsBuilt = false;
+
+  function buildTodayDateOptions() {
+    if (todayDateOptionsBuilt) return;
+    todayDateOptionsBuilt = true;
+
+    var dates = [DATA.todayDate].concat(DATA.days.slice().reverse());
+    dates.forEach(function(d) {
+      var opt = document.createElement('option');
+      opt.value = d;
+      opt.textContent = d + (d === DATA.todayDate ? ' (조회일)' : '');
+      todayDateSelect.appendChild(opt);
+    });
+    todayDateSelect.value = DATA.todayDate;
+  }
+
   function refreshTodayTab() {
-    document.getElementById('todayDateLabel').textContent = '오늘(조회일): ' + DATA.todayDate;
+    buildTodayDateOptions();
     renderTodayTable(computeTodayTotalSeries());
     drawTodayCharts(computeTodayGroupedSeries());
   }
@@ -1358,6 +1384,11 @@
 
   document.getElementById('intradayDateSelect').addEventListener('change', function() {
     renderIntraday(getMatchedAdjustments());
+  });
+
+  todayDateSelect.addEventListener('change', function() {
+    renderTodayTable(computeTodayTotalSeries());
+    drawTodayCharts(computeTodayGroupedSeries());
   });
 
   var currentTab = 'trend';
