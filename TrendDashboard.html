@@ -981,7 +981,8 @@
     dates.forEach(function(d) {
       var opt = document.createElement('option');
       opt.value = d;
-      opt.textContent = d + (d === DATA.todayDate ? ' (조회일)' : '');
+      // <option> 텍스트는 태그를 못 그리므로 dayOfWeekBadge의 색상 span 대신 요일 글자만 붙인다.
+      opt.textContent = d + '(' + DOW_LABELS[dayOfWeekIndex(d)] + ')' + (d === DATA.todayDate ? ' 조회일' : '');
       todayDateSelect.appendChild(opt);
     });
     todayDateSelect.value = DATA.todayDate;
