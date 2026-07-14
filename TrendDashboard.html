@@ -831,6 +831,14 @@
     drawCharts(computeGroupedSeries()); // 그래프: 항목별로 나눠서 각각의 추이를 비교
   }
 
+  // "HH:mm" 문자열을 그대로 정렬하면 [최종마감]으로 찍힌 "00:00"이 그 날의 마지막 시점인데도
+  // 사전식으로는 가장 앞에 와버린다(서버 buildDaySnapshots_와 동일한 규칙: 00:00은 항상 맨 뒤).
+  function compareTimeWithMidnightLast(a, b) {
+    if (a === '00:00' && b !== '00:00') return 1;
+    if (b === '00:00' && a !== '00:00') return -1;
+    return a < b ? -1 : (a > b ? 1 : 0);
+  }
+
   // 선택한 날짜(조회일 포함, todayDateSelect)의 시간대별 스냅샷을 매체/보종 필터에 맞는 항목들끼리
   // 시각 단위로 합산한 표 데이터를 만든다. 당일현황 버튼은 클릭마다 활성 매체/보종 전체를 같은
   // 시각으로 한 번에 찍으므로(서버 buildDaySnapshots_ 참고), 서로 다른 항목이라도 같은 시각 값끼리는
@@ -852,7 +860,7 @@
       });
     });
 
-    var times = Object.keys(timesSet).sort();
+    var times = Object.keys(timesSet).sort(compareTimeWithMidnightLast);
     var targetCPA = matchedItems.length === 1 ? matchedItems[0].targetCPA : null;
 
     return times.map(function(t) {
@@ -914,7 +922,7 @@
       });
     });
 
-    var times = Object.keys(timesSet).sort();
+    var times = Object.keys(timesSet).sort(compareTimeWithMidnightLast);
 
     return {
       days: times,
