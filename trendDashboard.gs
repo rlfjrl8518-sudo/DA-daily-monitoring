@@ -1,6 +1,5 @@
 var TREND_DASHBOARD_DEFAULT_DAYS = 14; // 팝업을 열었을 때 기본으로 보여줄 일수
 var TREND_DASHBOARD_MAX_DAYS = 60; // 팝업 안에서 직접 입력해 늘려볼 수 있는 최대 일수
-var TREND_COMPARE_WINDOW_DEFAULT_DAYS = 3; // 조정사항 분석 탭에서 기본으로 비교할 전/후 일수
 
 // 최근 N일(조회일 기준, [최종마감] 00:00 데이터)의 매체/보종별 비용·DB·단가 추이를
 // HTML 팝업으로 보여준다. updateDAReport()/updateDAReport_final() 끝에 자동으로 호출되고,
@@ -106,23 +105,12 @@ function showRecentTrendDashboard() {
     .filter(function(g) { return g.items.length > 0; });
   _perfLog("매체/보종별 mediaGroups 구성", tGroups);
 
-  // 조정사항 인덱스(setupAdjustmentLogColumns 실행 전이면 빈 배열)도 같은 기간만 골라 함께 보낸다.
-  // settings는 이미 위에서 한 번 읽어둔 데이터라, 조정일자 헤더/행 수를 다시 시트에서 읽지
-  // 않고 그대로 재사용한다(불필요한 스프레드시트 호출 왕복을 줄이기 위함). 다만 getAdjustmentLog_
-  // 내부에서 조정시간/매체/보종/카테고리/세부내용은 getDisplayValues()로 settings 전체 행 수만큼
-  // 별도로 다시 읽으므로(주석 참고), 로그가 많이 쌓이면 이 호출도 눈에 띄게 느려질 수 있다.
-  var tAdjust = Date.now();
-  var adjustments = getAdjustmentLog_(settingSheet, settings).filter(function(a) {
-    return daysSet[a.date];
-  });
-  _perfLog("조정사항 인덱스 읽기(getDisplayValues, " + settings.length + "행)", tAdjust);
-
-  // "조정사항 분석" 탭의 시간대별 현황 서브탭 + "시간대별 현황" 탭(선택한 아무 날짜나 볼 수 있음)
-  // 에서 함께 쓰기 위해, 최종마감(00:00)뿐 아니라 그 날 찍힌 모든 당일현황 스냅샷을 매체/보종/
-  // 날짜별로 모아 시간순으로 함께 보낸다. 조회일(=아직 최종마감 전인 당일)도 시간대별로 볼 수
-  // 있어야 하므로, 최종마감 추이/조정사항 분석용 daysSet(조회일 제외)과는 별도로 조회일을 더한
-  // daysSet을 만들어 넘긴다 — daysSet 자체에 조회일을 섞으면 조정사항 분석 탭(days 인덱스를
-  // 기준으로 전/후를 계산)이 깨지기 때문에, 원본 daysSet은 그대로 두고 복사본만 확장한다.
+  // "시간대별 현황" 탭(선택한 아무 날짜나 볼 수 있음)에서 쓰기 위해, 최종마감(00:00)뿐 아니라
+  // 그 날 찍힌 모든 당일현황 스냅샷을 매체/보종/날짜별로 모아 시간순으로 함께 보낸다. 조회일
+  // (=아직 최종마감 전인 당일)도 시간대별로 볼 수 있어야 하므로, 최종마감 추이/주간·월간 비교용
+  // daysSet(조회일 제외)과는 별도로 조회일을 더한 daysSet을 만들어 넘긴다 — daysSet 자체에
+  // 조회일을 섞으면 그 탭들(days 배열 길이·인덱스 기준으로 집계)이 깨지기 때문에, 원본 daysSet은
+  // 그대로 두고 복사본만 확장한다.
   var todayDateStr = Utilities.formatDate(refDate, TIMEZONE, "yyyy-MM-dd");
 
   var tSnapshots = Date.now();
@@ -136,8 +124,6 @@ function showRecentTrendDashboard() {
     days: days,
     mediaGroups: mediaGroups,
     defaultDays: TREND_DASHBOARD_DEFAULT_DAYS,
-    adjustments: adjustments,
-    defaultCompareWindow: TREND_COMPARE_WINDOW_DEFAULT_DAYS,
     daySnapshots: daySnapshots,
     todayDate: todayDateStr,
     catalogTotalProduct: CATALOG_TOTAL_PRODUCT
@@ -209,47 +195,4 @@ function buildDaySnapshots_(logs, daysSet) {
   });
 
   return result;
-}
-
-// setupAdjustmentLogColumns()가 마련한 조정사항 인덱스(조정일자/조정시간/매체/보종/카테고리/
-// 세부내용)를 읽어온다. 아직 설정 전이라 헤더가 없으면 빈 배열을 반환한다(추이 대시보드는
-// 그대로 동작).
-//
-// settings는 호출 쪽(showRecentTrendDashboard)이 이미 getDataRange().getValues()로 읽어둔
-// 전체 시트 데이터를 그대로 넘겨받은 것이다 — 헤더 행 조회, 마지막 행 수, 조정일자(Date 값)
-// 모두 이 안에 이미 들어있으므로 시트에 다시 요청하지 않는다. 다만 조정시간/매체/보종/
-// 카테고리/세부내용은 getDisplayValues()로 별도 한 번 더 읽는다 — 예를 들어 "10%"처럼
-// 타이핑하면 시트가 자동으로 숫자(0.1, 퍼센트 서식)로 바꿔버리는데, settings(getValues() 결과)
-// 그대로 쓰면 "0.1"이 되지만 getDisplayValues()는 셀에 실제 보이는 그대로("10%")를 돌려주므로
-// 이 컬럼들만큼은 어쩔 수 없이 추가 호출이 필요하다.
-function getAdjustmentLog_(settingSheet, settings) {
-
-  var headerRow = settings[0];
-  var col = headerRow.indexOf("조정일자");
-  if (col === -1) return [];
-
-  if (settings.length < 2) return [];
-
-  var displayValues = settingSheet.getRange(2, col + 1, settings.length - 1, 6).getDisplayValues();
-  var records = [];
-
-  for (var i = 1; i < settings.length; i++) {
-    var dateCell = settings[i][col];
-    if (!(dateCell instanceof Date)) continue;
-
-    var disp = displayValues[i - 1];
-    var timeStr = String(disp[1]).trim();
-    if (!timeStr) continue; // 조정시간이 비어 있으면 전/후를 가를 기준이 없으므로 건너뛴다.
-
-    records.push({
-      date: Utilities.formatDate(dateCell, TIMEZONE, "yyyy-MM-dd"),
-      time: timeStr,
-      media: String(disp[2]).trim(),
-      product: String(disp[3]).trim(),
-      category: String(disp[4]).trim(),
-      detail: String(disp[5]).trim()
-    });
-  }
-
-  return records;
 }

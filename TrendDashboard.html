@@ -169,29 +169,9 @@
     gap: 10px;
     margin-bottom: 12px;
   }
-  .adjust-hint {
+  .hint-text {
     color: #80868b;
     font-size: 12px;
-  }
-  .subtabs {
-    display: flex;
-    gap: 6px;
-    margin-bottom: 12px;
-  }
-  .subtab-btn {
-    padding: 4px 12px;
-    border: 1px solid transparent;
-    border-radius: 6px;
-    background: #f1f3f4;
-    cursor: pointer;
-    font-size: 12px;
-    color: #5f6368;
-  }
-  .subtab-btn.active {
-    background: #fff;
-    border-color: #dadce0;
-    color: #202124;
-    font-weight: 600;
   }
   .avg-cpa-stat {
     font-weight: 400;
@@ -202,6 +182,11 @@
     font-size: 12px;
     margin: 0 2px;
   }
+  .diff-badge { font-weight: 600; }
+  .diff-neutral { color: #5f6368; }
+  .diff-good { color: #1e8e3e; }
+  .diff-bad { color: #c5221f; }
+  .diff-na { color: #80868b; font-weight: 400; }
 </style>
 </head>
 <body>
@@ -223,7 +208,8 @@
 
   <div class="tabs">
     <button type="button" class="tab-btn active" data-tab="trend">추이</button>
-    <button type="button" class="tab-btn" data-tab="adjust">조정사항 분석</button>
+    <button type="button" class="tab-btn" data-tab="weekly">주간 비교</button>
+    <button type="button" class="tab-btn" data-tab="monthly">월간 비교</button>
     <button type="button" class="tab-btn" data-tab="today">시간대별 현황</button>
   </div>
 
@@ -254,73 +240,71 @@
     </div>
   </div>
 
-  <div id="tab-adjust" style="display:none;">
-    <div class="subtabs">
-      <button type="button" class="subtab-btn active" data-subtab="daily">일자별 추이</button>
-      <button type="button" class="subtab-btn" data-subtab="intraday">시간대별 현황</button>
+  <div id="tab-weekly" style="display:none;">
+    <div class="adjust-controls">
+      <span class="hint-text">최근 최대 60일치 최종마감 데이터를 월~일 기준 주 단위로 묶어 비교합니다 ("최근 일수" 필터와 무관).</span>
     </div>
 
-    <div id="subtab-daily">
-      <div class="adjust-controls">
-        <label for="compareWindow">비교 일수(전/후)</label>
-        <input type="number" id="compareWindow" min="1" value="3" style="width:60px;">
-        <span id="adjustHint" class="adjust-hint"></span>
+    <div class="charts">
+      <div class="chart-box">
+        <div class="chart-title">주간 비용 &amp; DB 비교 (비용: 막대)</div>
+        <div id="weeklyCostDbChart" class="chart"></div>
       </div>
-
-      <div class="chart-box" style="margin-bottom:14px;">
-        <div class="chart-title">CPA 추이 + 조정사항 마커</div>
-        <div id="adjustChart" class="chart" style="height:220px;"></div>
-      </div>
-
-      <div class="table-wrap">
-        <table>
-          <thead>
-            <tr>
-              <th>조정일시</th>
-              <th>매체</th>
-              <th>보종</th>
-              <th>카테고리</th>
-              <th>세부내용</th>
-              <th>전 비용</th>
-              <th>전 DB</th>
-              <th>전 CPA</th>
-              <th>후 비용</th>
-              <th>후 DB</th>
-              <th>후 CPA</th>
-              <th>CPA 증감</th>
-            </tr>
-          </thead>
-          <tbody id="adjustTableBody"></tbody>
-        </table>
+      <div class="chart-box">
+        <div class="chart-title">주간 DB &amp; 단가(CPA) 비교 (DB: 막대)</div>
+        <div id="weeklyDbCpaChart" class="chart"></div>
       </div>
     </div>
 
-    <div id="subtab-intraday" style="display:none;">
-      <div class="adjust-controls">
-        <label for="intradayDateSelect">조정 건 선택</label>
-        <select id="intradayDateSelect" style="max-width:320px;"></select>
-        <span id="intradayHint" class="adjust-hint"></span>
-      </div>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>주(월~일)</th>
+            <th>비용</th>
+            <th>DB</th>
+            <th>단가 <span class="avg-cpa-stat">(평균 단가: <strong id="weeklyAvgCpaValue">-</strong><span id="weeklyAvgCpaBadge"></span>)</span></th>
+            <th>전주 비용증감</th>
+            <th>전주 DB증감</th>
+            <th>전주 단가증감</th>
+          </tr>
+        </thead>
+        <tbody id="weeklyTableBody"></tbody>
+      </table>
+    </div>
+  </div>
 
-      <div class="chart-box" style="margin-bottom:14px;">
-        <div class="chart-title">당일 시간대별 CPA 추이</div>
-        <div id="intradayChart" class="chart" style="height:220px;"></div>
-      </div>
+  <div id="tab-monthly" style="display:none;">
+    <div class="adjust-controls">
+      <span class="hint-text">최근 최대 60일치 최종마감 데이터를 월(月) 단위로 묶어 비교합니다 ("최근 일수" 필터와 무관).</span>
+    </div>
 
-      <div class="table-wrap">
-        <table>
-          <thead>
-            <tr>
-              <th>시각</th>
-              <th>비용</th>
-              <th>DB</th>
-              <th>단가</th>
-              <th>조정 시점</th>
-            </tr>
-          </thead>
-          <tbody id="intradayTableBody"></tbody>
-        </table>
+    <div class="charts">
+      <div class="chart-box">
+        <div class="chart-title">월간 비용 &amp; DB 비교 (비용: 막대)</div>
+        <div id="monthlyCostDbChart" class="chart"></div>
       </div>
+      <div class="chart-box">
+        <div class="chart-title">월간 DB &amp; 단가(CPA) 비교 (DB: 막대)</div>
+        <div id="monthlyDbCpaChart" class="chart"></div>
+      </div>
+    </div>
+
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>월</th>
+            <th>비용</th>
+            <th>DB</th>
+            <th>단가 <span class="avg-cpa-stat">(평균 단가: <strong id="monthlyAvgCpaValue">-</strong><span id="monthlyAvgCpaBadge"></span>)</span></th>
+            <th>전월 비용증감</th>
+            <th>전월 DB증감</th>
+            <th>전월 단가증감</th>
+          </tr>
+        </thead>
+        <tbody id="monthlyTableBody"></tbody>
+      </table>
     </div>
   </div>
 
@@ -507,7 +491,7 @@
   }
 
   // 현재 매체/보종 다중 선택 필터에 맞는 항목들을 {media, product, targetCPA, byDate(전체 기간)}
-  // 형태로 뽑아준다. 추이 탭(computeSeries/computeGroupedSeries)과 조정사항 분석 탭이 공유한다.
+  // 형태로 뽑아준다. 추이 탭(computeSeries/computeGroupedSeries)과 주간/월간 비교 탭이 공유한다.
   function getMatchedItems() {
     var mediaSet = toSet(mediaMultiSelect.getSelected()); // 비어있으면 전체 매체
     var productSet = toSet(productMultiSelect.getSelected()); // 비어있으면 전체 보종
@@ -548,20 +532,6 @@
     });
 
     return matchedItems;
-  }
-
-  // 현재 매체/보종 필터에 맞는 조정사항만 골라준다(비어있으면 전체).
-  function getMatchedAdjustments() {
-    var mediaSet = toSet(mediaMultiSelect.getSelected());
-    var productSet = toSet(productMultiSelect.getSelected());
-    var mediaFilterOn = Object.keys(mediaSet).length > 0;
-    var productFilterOn = Object.keys(productSet).length > 0;
-
-    return DATA.adjustments.filter(function(a) {
-      if (mediaFilterOn && !mediaSet[a.media]) return false;
-      if (productFilterOn && !productSet[a.product]) return false;
-      return true;
-    });
   }
 
   // 선택 조건(매체/보종 각각 다중 선택 가능, 최근 일수)에 맞는 날짜별 {cost, db} 합계
@@ -994,406 +964,237 @@
     drawTodayCharts(computeTodayGroupedSeries());
   }
 
-  // totals(DATA.days와 같은 길이의 {cost, db} 배열)에서 [fromIdx, toIdx] 구간(경계 밖은 잘라냄)을
-  // 합산해 비용/DB/가중평균 CPA를 계산한다.
-  function aggregateWindow(totals, fromIdx, toIdx) {
-    var cost = 0, db = 0;
-    for (var i = Math.max(0, fromIdx); i <= Math.min(totals.length - 1, toIdx); i++) {
-      cost += totals[i].cost;
-      db += totals[i].db;
+  // 요청한 자리수(2자리)만큼 앞에 0을 채운다.
+  function pad2(n) { return (n < 10 ? '0' : '') + n; }
+
+  // "yyyy-MM-dd" 문자열을 지역/시간대 영향 없이 Date로 변환한다(dayOfWeekIndex와 동일한 방식).
+  function parseYmd(dateStr) {
+    var parts = dateStr.split('-');
+    return new Date(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2]));
+  }
+
+  function formatYmd(d) {
+    return d.getFullYear() + '-' + pad2(d.getMonth() + 1) + '-' + pad2(d.getDate());
+  }
+
+  // 그 날짜가 속한 주(월요일 시작)의 월요일 날짜("yyyy-MM-dd")를 주 버킷 키로 쓴다.
+  function weekBucketKey(dateStr) {
+    var d = parseYmd(dateStr);
+    var dow = d.getDay(); // 0=일 ... 6=토
+    var diffToMonday = dow === 0 ? -6 : (1 - dow);
+    d.setDate(d.getDate() + diffToMonday);
+    return formatYmd(d);
+  }
+
+  // 주 버킷 키(월요일 날짜)를 "MM-dd~MM-dd" 표시 라벨로 바꾼다.
+  function weekBucketLabel(mondayStr) {
+    var mon = parseYmd(mondayStr);
+    var sun = new Date(mon);
+    sun.setDate(sun.getDate() + 6);
+    function mmdd(d) { return pad2(d.getMonth() + 1) + '-' + pad2(d.getDate()); }
+    return mmdd(mon) + '~' + mmdd(sun);
+  }
+
+  // 월 버킷 키는 "yyyy-MM"을 그대로 쓴다.
+  function monthBucketKey(dateStr) { return dateStr.slice(0, 7); }
+
+  function monthBucketLabel(key) {
+    var parts = key.split('-');
+    return parts[0] + '년 ' + Number(parts[1]) + '월';
+  }
+
+  // "최근 일수" 필터와 무관하게 DATA.days(최대 TREND_DASHBOARD_MAX_DAYS일) 전체를 bucketKeyFn으로
+  // 묶어, 데이터에 실제 등장하는 순서(=시간순) 그대로 버킷 키 목록을 만든다.
+  function computePeriodBuckets(bucketKeyFn) {
+    var order = [];
+    var seen = {};
+    DATA.days.forEach(function(d) {
+      var k = bucketKeyFn(d);
+      if (!seen[k]) { seen[k] = true; order.push(k); }
+    });
+    return order;
+  }
+
+  // 현재 매체/보종 필터에 맞는 항목들을 버킷(주/월) 단위로 합산한다. 추이 탭의 computeSeries()와
+  // 같은 필터 로직을 쓰되, 날짜 대신 버킷으로 묶는다는 점만 다르다.
+  function computePeriodTotals(bucketKeyFn, buckets) {
+    var matchedItems = getMatchedItems();
+    var totals = {};
+    buckets.forEach(function(k) { totals[k] = { cost: 0, db: 0 }; });
+
+    matchedItems.forEach(function(item) {
+      item.byDate.forEach(function(entry, idx) {
+        if (!entry) return;
+        var k = bucketKeyFn(DATA.days[idx]);
+        totals[k].cost += entry.cost;
+        totals[k].db += entry.db;
+      });
+    });
+
+    var targetCPA = matchedItems.length === 1 ? matchedItems[0].targetCPA : null;
+
+    return buckets.map(function(k) {
+      var t = totals[k];
+      return {
+        bucketKey: k,
+        cost: t.cost,
+        db: t.db,
+        cpa: t.db > 0 ? Math.round(t.cost / t.db) : 0,
+        hasData: t.cost > 0 || t.db > 0,
+        targetCPA: targetCPA
+      };
+    });
+  }
+
+  // 버킷 순서(오름차순, 과거->최근) 그대로 직전 버킷 대비 증감률(%)을 각 행에 붙인다. 직전
+  // 버킷에 데이터가 없거나(CPA는 추가로 직전 CPA가 0, 즉 DB가 없으면) 비교 기준이 없으므로 null.
+  function attachPeriodDiffs(rows) {
+    rows.forEach(function(row, idx) {
+      var prev = idx > 0 ? rows[idx - 1] : null;
+      row.costDiffPct = (prev && prev.hasData) ? ((row.cost - prev.cost) / prev.cost * 100) : null;
+      row.dbDiffPct = (prev && prev.hasData) ? ((row.db - prev.db) / prev.db * 100) : null;
+      row.cpaDiffPct = (prev && prev.hasData && row.hasData && prev.cpa > 0)
+        ? ((row.cpa - prev.cpa) / prev.cpa * 100)
+        : null;
+    });
+    return rows;
+  }
+
+  // 증감률을 ▲/▼ 배지로 그린다. goodDown이 true면(CPA처럼 낮을수록 좋은 지표) 감소를 초록,
+  // 증가를 빨강으로 강조하고, 아니면(비용/DB처럼 방향에 좋고 나쁨이 없는 지표) 회색으로만 표시한다.
+  function periodDiffBadge(pct, goodDown) {
+    if (pct === null || pct === undefined || !isFinite(pct)) {
+      return '<span class="diff-badge diff-na">-</span>';
     }
-    return { cost: cost, db: db, cpa: db > 0 ? Math.round(cost / db) : 0 };
+    var rounded = Math.round(pct);
+    if (rounded === 0) return '<span class="diff-badge diff-neutral">–</span>';
+
+    var isUp = rounded > 0;
+    var cls = goodDown ? (isUp ? 'diff-bad' : 'diff-good') : 'diff-neutral';
+    var arrow = isUp ? '▲' : '▼';
+    return '<span class="diff-badge ' + cls + '">' + arrow + ' ' + Math.abs(rounded) + '%</span>';
   }
 
-  function fmtOrDash(n) {
-    return n > 0 ? n.toLocaleString() : '-';
-  }
+  // computeGroupedSeries()와 같은 방식(필터 없으면 전체 하나로, 있으면 보종별 또는 매체별로
+  // 나눠서)으로 버킷(주/월) 단위 시리즈를 만든다. drawComboChart가 그대로 재사용할 수 있도록
+  // { days, series } 형태를 맞추되, days 자리에는 날짜 대신 버킷 키가 들어간다.
+  function computePeriodGroupedSeries(bucketKeyFn, buckets) {
+    var mediaSet = toSet(mediaMultiSelect.getSelected());
+    var productSet = toSet(productMultiSelect.getSelected());
+    var mediaFilterOn = Object.keys(mediaSet).length > 0;
+    var productFilterOn = Object.keys(productSet).length > 0;
+    var anyFilterOn = mediaFilterOn || productFilterOn;
 
-  // 매체/보종 이름으로 (현재 필터와 무관하게) DATA.mediaGroups에서 원본 항목을 찾는다.
-  // 조정사항 하나하나는 항상 자기 자신의 매체/보종 실적만 기준으로 전/후를 계산해야 하므로,
-  // 필터로 여러 항목이 합쳐져 있어도 이 조회로 각 조정의 실제 항목을 되찾는다.
-  function findItemByMediaProduct(media, product) {
-    for (var i = 0; i < DATA.mediaGroups.length; i++) {
-      if (DATA.mediaGroups[i].media !== media) continue;
-      var items = DATA.mediaGroups[i].items;
-      for (var j = 0; j < items.length; j++) {
-        if (items[j].product === product) {
-          return { media: media, product: product, targetCPA: items[j].targetCPA, byDate: items[j].byDate };
-        }
+    var groups = DATA.mediaGroups.filter(function(g) {
+      return !mediaFilterOn || mediaSet[g.media];
+    });
+
+    var seriesMap = {};
+    var seriesOrder = [];
+
+    function seriesFor(label) {
+      if (!seriesMap[label]) {
+        seriesMap[label] = {};
+        buckets.forEach(function(k) { seriesMap[label][k] = { cost: 0, db: 0 }; });
+        seriesOrder.push(label);
       }
-      return null;
-    }
-    return null;
-  }
-
-  function itemDailyTotals(item) {
-    return item.byDate.map(function(entry) {
-      return entry ? { cost: entry.cost, db: entry.db } : { cost: 0, db: 0 };
-    });
-  }
-
-  function getDaySnapshots(media, product, date) {
-    var byDate = DATA.daySnapshots[media + '||' + product];
-    return (byDate && byDate[date]) || [];
-  }
-
-  // 그 날 스냅샷들(시간순 정렬, [최종마감]은 항상 마지막) 중 조정 시각(time) 이전의 마지막
-  // 스냅샷 시각을 찾는다. 그 시각까지의 누적값이 "조정 직전까지의 당일 실적"이 된다.
-  function baselineSnapshotTime(snapshots, time) {
-    var found = null;
-    snapshots.forEach(function(s) {
-      if (s.time !== '00:00' && s.time <= time) found = s.time;
-    });
-    return found;
-  }
-
-  // 시간대별 현황 탭에서 마커를 붙일 위치를 찾는다. baselineSnapshotTime과 달리, 조정 시각보다
-  // 이른 스냅샷이 그 날 하나도 없어도(예: 그 날 첫 당일현황 클릭이 조정보다 늦은 경우) null을
-  // 반환하지 않고 그 날의 첫 스냅샷에 붙여서 최소한 대략적인 위치는 보여준다. 전/후 수치 계산
-  // (splitDaySnapshots)에는 쓰지 않고 오직 화면 표시용으로만 쓴다.
-  function markerSnapshotTime(snapshots, time) {
-    var baseline = baselineSnapshotTime(snapshots, time);
-    if (baseline) return baseline;
-    return snapshots.length ? snapshots[0].time : null;
-  }
-
-  // 하루치 스냅샷을 조정 시각 기준으로 "조정 전"(baseline까지 누적)과 "조정 후"(baseline부터
-  // 그 날 마지막 스냅샷까지의 증분)로 나눈다. 조정 전/후를 가를 스냅샷이 부족하면(예: 그 날
-  // 당일현황을 한 번도 안 눌렀거나, 조정 이후로 아직 한 번도 안 눌렀으면) hasBefore/hasAfter가
-  // false가 되어 호출 쪽에서 날짜 단위 비교로 대체하게 한다.
-  function splitDaySnapshots(snapshots, time) {
-    if (snapshots.length === 0) return { hasBefore: false, hasAfter: false };
-
-    var baselineTime = baselineSnapshotTime(snapshots, time);
-    var before = { cost: 0, db: 0 };
-    var hasAfterSnapshot = false;
-
-    snapshots.forEach(function(s) {
-      if (s.time === baselineTime) { before.cost = s.cost; before.db = s.db; }
-      if (s.time === '00:00' || s.time > time) hasAfterSnapshot = true;
-    });
-
-    if (!hasAfterSnapshot) {
-      return { hasBefore: !!baselineTime, hasAfter: false, beforeCost: before.cost, beforeDb: before.db };
+      return seriesMap[label];
     }
 
-    var last = snapshots[snapshots.length - 1]; // 정렬돼 있으므로 [최종마감]이 있으면 항상 마지막
+    function addByDate(values, byDate) {
+      byDate.forEach(function(entry, idx) {
+        if (!entry) return;
+        var k = bucketKeyFn(DATA.days[idx]);
+        values[k].cost += entry.cost;
+        values[k].db += entry.db;
+      });
+    }
+
+    groups.forEach(function(group) {
+      if (group.isCatalog && !productFilterOn) {
+        var catalogLabel = !anyFilterOn ? '전체' : group.media;
+        addByDate(seriesFor(catalogLabel), group.total.byDate);
+        return;
+      }
+
+      group.items.forEach(function(item) {
+        if (productFilterOn && !productSet[item.product]) return;
+        var label = !anyFilterOn ? '전체' : (productFilterOn ? item.product : group.media);
+        addByDate(seriesFor(label), item.byDate);
+      });
+    });
 
     return {
-      hasBefore: !!baselineTime,
-      hasAfter: true,
-      beforeCost: before.cost,
-      beforeDb: before.db,
-      afterCost: last.cost - before.cost,
-      afterDb: last.db - before.db
+      days: buckets,
+      series: seriesOrder.map(function(label) {
+        return {
+          label: label,
+          values: buckets.map(function(k) {
+            var v = seriesMap[label][k];
+            return { cost: v.cost, db: v.db, cpa: v.db > 0 ? Math.round(v.cost / v.db) : 0 };
+          })
+        };
+      })
     };
   }
 
-  // 조정 건 하나에 대해 "전 = (D-N일~D-1일 합계) + (D일 조정 전)", "후 = (D일 조정 후) +
-  // (D+1일~D+N일 합계)"를 계산한다. D일 안에서 조정 전/후를 가를 스냅샷이 부족하면 D일 자체를
-  // 비교에서 제외(기존 방식)하고 intradayOk를 false로 표시한다.
-  function computeMergedBeforeAfter(adj, windowDays) {
-    var item = findItemByMediaProduct(adj.media, adj.product);
-    var dIdx = item ? DATA.days.indexOf(adj.date) : -1;
+  // 주간/월간 비교 탭 하나를 구동하는 설정. prefix는 그 탭의 DOM id 접두사(weeklyTableBody 등)와 일치해야 한다.
+  var PERIOD_TABS = {
+    weekly: { prefix: 'weekly', bucketKey: weekBucketKey, bucketLabel: weekBucketLabel },
+    monthly: { prefix: 'monthly', bucketKey: monthBucketKey, bucketLabel: monthBucketLabel }
+  };
 
-    if (!item || dIdx === -1) {
-      var empty = { cost: 0, db: 0, cpa: 0 };
-      return { before: empty, after: Object.assign({}, empty), intradayOk: false };
-    }
-
-    var totals = itemDailyTotals(item);
-    var beforeDaily = aggregateWindow(totals, dIdx - windowDays, dIdx - 1);
-    var afterDaily = aggregateWindow(totals, dIdx + 1, dIdx + windowDays);
-
-    var snaps = getDaySnapshots(adj.media, adj.product, adj.date);
-    var split = splitDaySnapshots(snaps, adj.time);
-
-    var before, after, intradayOk;
-
-    if (split.hasBefore && split.hasAfter) {
-      before = { cost: beforeDaily.cost + split.beforeCost, db: beforeDaily.db + split.beforeDb };
-      after = { cost: split.afterCost + afterDaily.cost, db: split.afterDb + afterDaily.db };
-      intradayOk = true;
-    } else {
-      before = beforeDaily;
-      after = afterDaily;
-      intradayOk = false;
-    }
-
-    before.cpa = before.db > 0 ? Math.round(before.cost / before.db) : 0;
-    after.cpa = after.db > 0 ? Math.round(after.cost / after.db) : 0;
-
-    return { before: before, after: after, intradayOk: intradayOk };
-  }
-
-  // 매체/보종을 각각 정확히 하나씩 선택했을 때만 CPA 추이 위에 조정사항 마커를 점으로 찍어 보여준다.
-  // 여러 항목이 섞이면 어느 조정이 어느 선에 해당하는지 알 수 없어 마커를 표시하지 않는다.
-  function renderAdjustChart(item, adjustments) {
-    var container = document.getElementById('adjustChart');
-
-    if (!item) {
-      container.innerHTML = '';
-      return;
-    }
-
-    var startIdx = getVisibleStartIndex();
-    var days = DATA.days.slice(startIdx);
-    var byDate = item.byDate.slice(startIdx);
-
-    var adjByDate = {};
-    adjustments.forEach(function(a) {
-      if (a.media !== item.media || a.product !== item.product) return;
-      if (!adjByDate[a.date]) adjByDate[a.date] = [];
-      adjByDate[a.date].push(a);
-    });
-
-    var dt = new google.visualization.DataTable();
-    dt.addColumn('string', '날짜');
-    dt.addColumn('number', 'CPA');
-    dt.addColumn({ type: 'string', role: 'annotation' });
-    dt.addColumn({ type: 'string', role: 'annotationText' });
-
-    days.forEach(function(d, idx) {
-      var entry = byDate[idx];
-      var cpa = entry && entry.db > 0 ? Math.round(entry.cost / entry.db) : 0;
-      var adjs = adjByDate[d];
-      var mark = adjs ? (adjs.length > 1 ? (adjs.length + '건') : adjs[0].category) : null;
-      var detail = adjs ? adjs.map(function(a) {
-        return a.time + ' ' + a.category + (a.detail ? ('(' + a.detail + ')') : '');
-      }).join('\n') : null;
-
-      dt.addRow([d.slice(5), cpa, mark, detail]);
-    });
-
-    new google.visualization.LineChart(container).draw(dt, {
-      legend: { position: 'none' },
-      chartArea: { left: 45, top: 10, right: 10, bottom: 30 },
-      colors: [SINGLE_SERIES_COLORS.cpa],
-      pointSize: 4,
-      lineWidth: 2,
-      curveType: 'function',
-      annotations: { style: 'point' }
-    });
-  }
-
-  // 조정 건마다 자기 자신의 매체/보종 실적으로 전/후를 계산한다(현재 필터가 여러 항목을
-  // 합쳐 보고 있어도, 표의 각 행은 항상 그 조정이 실제로 일어난 항목 기준으로 계산됨).
-  function renderAdjustTable(adjustments, windowDays) {
-    var body = document.getElementById('adjustTableBody');
+  function renderPeriodTable(cfg, rows) {
+    var body = document.getElementById(cfg.prefix + 'TableBody');
     body.innerHTML = '';
 
-    if (adjustments.length === 0) {
-      body.innerHTML = '<tr><td colspan="12" class="empty">표시할 조정사항이 없습니다.</td></tr>';
+    if (rows.length === 0 || rows.every(function(r) { return !r.hasData; })) {
+      body.innerHTML = '<tr><td colspan="7" class="empty">표시할 최종마감 데이터가 없습니다.</td></tr>';
       return;
     }
 
-    var rows = adjustments.map(function(a) {
-      var result = computeMergedBeforeAfter(a, windowDays);
-      return { adj: a, before: result.before, after: result.after, intradayOk: result.intradayOk };
-    });
+    // 그래프는 시간 순서(과거->최근)를 그대로 쓰고, 표는 추이 탭과 같은 정렬 방향 설정을 공유한다.
+    var tableRows = sortOrder.value === 'desc' ? rows.slice().reverse() : rows;
 
-    rows.sort(function(a, b) { return a.adj.date < b.adj.date ? 1 : (a.adj.date > b.adj.date ? -1 : 0); });
-
-    rows.forEach(function(r) {
+    tableRows.forEach(function(row) {
       var tr = document.createElement('tr');
-      var cpaDiff = (r.before.cpa > 0 && r.after.cpa > 0)
-        ? (Math.round((r.after.cpa - r.before.cpa) / r.before.cpa * 100) + '%')
-        : '-';
-      var note = r.intradayOk ? '' : ' <span class="adjust-hint">(당일 데이터 부족, D일 제외)</span>';
-
       tr.innerHTML =
-        '<td>' + r.adj.date + ' ' + r.adj.time + '</td>' +
-        '<td>' + r.adj.media + '</td>' +
-        '<td>' + r.adj.product + '</td>' +
-        '<td>' + r.adj.category + '</td>' +
-        '<td>' + (r.adj.detail || '-') + note + '</td>' +
-        '<td>' + fmtOrDash(r.before.cost) + '</td>' +
-        '<td>' + fmtOrDash(r.before.db) + '</td>' +
-        '<td>' + fmtOrDash(r.before.cpa) + '</td>' +
-        '<td>' + fmtOrDash(r.after.cost) + '</td>' +
-        '<td>' + fmtOrDash(r.after.db) + '</td>' +
-        '<td>' + fmtOrDash(r.after.cpa) + '</td>' +
-        '<td>' + cpaDiff + '</td>';
+        '<td>' + cfg.bucketLabel(row.bucketKey) + '</td>' +
+        '<td>' + (row.hasData ? row.cost.toLocaleString() : '-') + '</td>' +
+        '<td>' + (row.hasData ? row.db.toLocaleString() : '-') + '</td>' +
+        '<td>' + (row.hasData ? row.cpa.toLocaleString() : '-') + statusBadge(row) + '</td>' +
+        '<td>' + periodDiffBadge(row.costDiffPct, false) + '</td>' +
+        '<td>' + periodDiffBadge(row.dbDiffPct, false) + '</td>' +
+        '<td>' + periodDiffBadge(row.cpaDiffPct, true) + '</td>';
       body.appendChild(tr);
     });
   }
 
-  // 매체||보종||날짜 조합별로 조정 건을 묶어 "조정 건 선택" 드롭다운을 채운다. 이전에 고른
-  // 값이 여전히 유효하면 그대로 유지하고, 아니면 가장 최근 날짜를 기본 선택한다.
-  function populateIntradayDateSelect(adjustments) {
-    var select = document.getElementById('intradayDateSelect');
-    var prevValue = select.value;
+  function updatePeriodAvgSummary(cfg, rows) {
+    var totalCost = 0, totalDb = 0;
+    rows.forEach(function(r) { totalCost += r.cost; totalDb += r.db; });
+    var avgCpa = totalDb > 0 ? Math.round(totalCost / totalDb) : 0;
 
-    var groups = {};
-    adjustments.forEach(function(a) {
-      var key = a.media + '||' + a.product + '||' + a.date;
-      if (!groups[key]) groups[key] = { media: a.media, product: a.product, date: a.date, items: [] };
-      groups[key].items.push(a);
-    });
+    document.getElementById(cfg.prefix + 'AvgCpaValue').textContent = totalDb > 0 ? avgCpa.toLocaleString() : '-';
 
-    var keys = Object.keys(groups).sort(function(x, y) {
-      return groups[x].date < groups[y].date ? 1 : (groups[x].date > groups[y].date ? -1 : 0);
-    });
-
-    select.innerHTML = '';
-
-    if (keys.length === 0) {
-      select.innerHTML = '<option value="">표시할 조정사항이 없습니다</option>';
-      return;
-    }
-
-    keys.forEach(function(key) {
-      var g = groups[key];
-      var opt = document.createElement('option');
-      opt.value = key;
-      opt.textContent = g.date + ' · ' + g.media + '/' + g.product +
-        (g.items.length > 1 ? (' (' + g.items.length + '건)') : (' · ' + g.items[0].category));
-      select.appendChild(opt);
-    });
-
-    select.value = groups[prevValue] ? prevValue : keys[0];
+    var targetCPA = rows.length ? rows[0].targetCPA : null;
+    document.getElementById(cfg.prefix + 'AvgCpaBadge').innerHTML =
+      (totalDb > 0) ? statusBadge({ targetCPA: targetCPA, cpa: avgCpa, hasData: true }) : '';
   }
 
-  function renderIntradayChart(snaps, adjsOnDate) {
-    var container = document.getElementById('intradayChart');
-
-    if (snaps.length === 0) {
-      container.innerHTML = '';
-      return;
-    }
-
-    var dt = new google.visualization.DataTable();
-    dt.addColumn('string', '시각');
-    dt.addColumn('number', 'CPA');
-    dt.addColumn({ type: 'string', role: 'annotation' });
-    dt.addColumn({ type: 'string', role: 'annotationText' });
-
-    snaps.forEach(function(s) {
-      var cpa = s.db > 0 ? Math.round(s.cost / s.db) : 0;
-      var label = s.time === '00:00' ? '[최종마감]' : s.time;
-
-      var marks = adjsOnDate.filter(function(a) { return markerSnapshotTime(snaps, a.time) === s.time; });
-      var mark = marks.length ? (marks.length > 1 ? (marks.length + '건') : marks[0].category) : null;
-      var detail = marks.length ? marks.map(function(a) {
-        var beforeFirst = !baselineSnapshotTime(snaps, a.time);
-        return a.time + ' ' + a.category + (a.detail ? ('(' + a.detail + ')') : '') +
-          (beforeFirst ? ' (이 시점 이전 조정, 그 날 첫 스냅샷에 표시)' : '');
-      }).join('\n') : null;
-
-      dt.addRow([label, cpa, mark, detail]);
-    });
-
-    new google.visualization.LineChart(container).draw(dt, {
-      legend: { position: 'none' },
-      chartArea: { left: 45, top: 10, right: 10, bottom: 30 },
-      colors: [SINGLE_SERIES_COLORS.cpa],
-      pointSize: 4,
-      lineWidth: 2,
-      curveType: 'function',
-      annotations: { style: 'point' }
-    });
+  function drawPeriodCharts(cfg, grouped) {
+    drawComboChart(cfg.prefix + 'CostDbChart', grouped, 'cost', 'db', '비용', 'DB', SINGLE_SERIES_COLORS.cost, SINGLE_SERIES_COLORS.db, cfg.bucketLabel);
+    drawComboChart(cfg.prefix + 'DbCpaChart', grouped, 'db', 'cpa', 'DB', '단가', SINGLE_SERIES_COLORS.db, SINGLE_SERIES_COLORS.cpa, cfg.bucketLabel);
   }
 
-  function renderIntradayTable(snaps, adjsOnDate) {
-    var body = document.getElementById('intradayTableBody');
-    body.innerHTML = '';
+  function refreshPeriodTab(cfg) {
+    var buckets = computePeriodBuckets(cfg.bucketKey);
+    var rows = attachPeriodDiffs(computePeriodTotals(cfg.bucketKey, buckets));
 
-    if (snaps.length === 0) {
-      body.innerHTML = '<tr><td colspan="5" class="empty">그 날의 시간대별 스냅샷이 없습니다.</td></tr>';
-      return;
-    }
-
-    var byMarker = {};
-    adjsOnDate.forEach(function(a) {
-      var t = markerSnapshotTime(snaps, a.time);
-      if (!t) return;
-      if (!byMarker[t]) byMarker[t] = [];
-      byMarker[t].push(a);
-    });
-
-    snaps.forEach(function(s) {
-      var tr = document.createElement('tr');
-      var label = s.time === '00:00' ? '[최종마감]' : s.time;
-      var cpa = s.db > 0 ? Math.round(s.cost / s.db) : 0;
-      var marks = byMarker[s.time];
-      var markCell = marks
-        ? marks.map(function(a) {
-            var beforeFirst = !baselineSnapshotTime(snaps, a.time);
-            return '◀ ' + a.time + ' ' + a.category + (a.detail ? ('(' + a.detail + ')') : '') +
-              (beforeFirst ? ' (이 시점 이전 조정)' : '');
-          }).join('<br>')
-        : '';
-
-      tr.innerHTML =
-        '<td>' + label + '</td>' +
-        '<td>' + fmtOrDash(s.cost) + '</td>' +
-        '<td>' + fmtOrDash(s.db) + '</td>' +
-        '<td>' + fmtOrDash(cpa) + '</td>' +
-        '<td style="text-align:left;color:#c5221f;">' + markCell + '</td>';
-      body.appendChild(tr);
-    });
+    renderPeriodTable(cfg, rows);
+    updatePeriodAvgSummary(cfg, rows);
+    drawPeriodCharts(cfg, computePeriodGroupedSeries(cfg.bucketKey, buckets));
   }
-
-  function renderIntraday(adjustments) {
-    populateIntradayDateSelect(adjustments);
-
-    var select = document.getElementById('intradayDateSelect');
-    var key = select.value;
-
-    if (!key) {
-      renderIntradayChart([], []);
-      renderIntradayTable([], []);
-      return;
-    }
-
-    var parts = key.split('||');
-    var media = parts[0], product = parts[1], date = parts[2];
-
-    var snaps = getDaySnapshots(media, product, date);
-    var adjsOnDate = adjustments.filter(function(a) {
-      return a.media === media && a.product === product && a.date === date;
-    });
-
-    renderIntradayChart(snaps, adjsOnDate);
-    renderIntradayTable(snaps, adjsOnDate);
-  }
-
-  var compareWindowInput = document.getElementById('compareWindow');
-  compareWindowInput.value = DATA.defaultCompareWindow || 3;
-
-  function refreshAdjustTab() {
-    var matchedItems = getMatchedItems();
-    var adjustments = getMatchedAdjustments();
-    var windowDays = parseInt(compareWindowInput.value, 10) || 3;
-    var singleItem = matchedItems.length === 1;
-
-    document.getElementById('adjustHint').textContent = singleItem
-      ? ''
-      : '매체와 보종을 각각 하나씩 선택하면 조정사항 마커 차트가 표시됩니다.';
-
-    renderAdjustChart(singleItem ? matchedItems[0] : null, adjustments);
-    renderAdjustTable(adjustments, windowDays);
-    renderIntraday(adjustments);
-  }
-
-  document.querySelectorAll('.subtab-btn').forEach(function(btn) {
-    btn.addEventListener('click', function() {
-      document.querySelectorAll('.subtab-btn').forEach(function(b) { b.classList.remove('active'); });
-      btn.classList.add('active');
-
-      var sub = btn.dataset.subtab;
-      document.getElementById('subtab-daily').style.display = sub === 'daily' ? '' : 'none';
-      document.getElementById('subtab-intraday').style.display = sub === 'intraday' ? '' : 'none';
-
-      // 숨겨진 동안 그린 차트는 크기가 0이라 깨질 수 있으므로, 보이는 순간 다시 그린다.
-      if (sub === 'intraday') renderIntraday(getMatchedAdjustments());
-      else refreshAdjustTab();
-    });
-  });
-
-  document.getElementById('intradayDateSelect').addEventListener('change', function() {
-    renderIntraday(getMatchedAdjustments());
-  });
 
   todayDateSelect.addEventListener('change', function() {
     renderTodayTable(computeTodayTotalSeries());
@@ -1406,8 +1207,9 @@
 
   function refreshIfReady() {
     if (!chartsReady) return;
-    if (currentTab === 'adjust') refreshAdjustTab();
-    else if (currentTab === 'today') refreshTodayTab();
+    if (currentTab === 'today') refreshTodayTab();
+    else if (currentTab === 'weekly') refreshPeriodTab(PERIOD_TABS.weekly);
+    else if (currentTab === 'monthly') refreshPeriodTab(PERIOD_TABS.monthly);
     else refresh();
   }
 
@@ -1418,15 +1220,13 @@
 
       currentTab = btn.dataset.tab;
       document.getElementById('tab-trend').style.display = currentTab === 'trend' ? '' : 'none';
-      document.getElementById('tab-adjust').style.display = currentTab === 'adjust' ? '' : 'none';
+      document.getElementById('tab-weekly').style.display = currentTab === 'weekly' ? '' : 'none';
+      document.getElementById('tab-monthly').style.display = currentTab === 'monthly' ? '' : 'none';
       document.getElementById('tab-today').style.display = currentTab === 'today' ? '' : 'none';
 
       refreshIfReady();
     });
   });
-
-  compareWindowInput.addEventListener('input', refreshIfReady);
-  compareWindowInput.addEventListener('change', refreshIfReady);
 
   mediaMultiSelect.onChange(function() {
     rebuildProductOptions();
