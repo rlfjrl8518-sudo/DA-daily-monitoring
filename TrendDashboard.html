@@ -310,8 +310,16 @@
 
   <div id="tab-today" style="display:none;">
     <div class="adjust-controls">
-      <label for="todayDateSelect">조회 날짜</label>
+      <label for="todayModeSelect">기간</label>
+      <select id="todayModeSelect" style="width:70px;">
+        <option value="day">일별</option>
+        <option value="week">주별</option>
+        <option value="month">월별</option>
+      </select>
       <select id="todayDateSelect" style="max-width:160px;"></select>
+      <select id="todayWeekSelect" style="max-width:160px;display:none;"></select>
+      <select id="todayMonthSelect" style="max-width:160px;display:none;"></select>
+      <span class="hint-text">주별/월별은 날짜별 최종마감 이전 마지막 스냅샷을 시각(0~23시) 단위로 뭉쳐 그 기간 전체를 합산합니다.</span>
     </div>
 
     <div class="charts">
@@ -913,8 +921,7 @@
     body.innerHTML = '';
 
     if (rows.length === 0 || rows.every(function(r) { return !r.hasData; })) {
-      var selectedDate = document.getElementById('todayDateSelect').value;
-      body.innerHTML = '<tr><td colspan="4" class="empty">' + selectedDate + ' 당일현황 데이터가 없습니다.</td></tr>';
+      body.innerHTML = '<tr><td colspan="4" class="empty">해당 기간의 시간대별 데이터가 없습니다.</td></tr>';
       return;
     }
 
@@ -929,8 +936,8 @@
     });
   }
 
-  // 시각("HH:mm")은 이미 x축 라벨로 그대로 쓸 문자열이므로, 추이 탭의 날짜 slice(5) 대신
-  // 그대로 반환하는 라벨 함수를 drawComboChart에 넘긴다.
+  // 시각("HH:mm" 또는 "0시"~"23시"/"[최종마감]")은 이미 x축 라벨로 그대로 쓸 문자열이므로,
+  // 추이 탭의 날짜 slice(5) 대신 그대로 반환하는 라벨 함수를 drawComboChart에 넘긴다.
   function todayXLabel(t) { return t; }
 
   function drawTodayCharts(grouped) {
@@ -958,10 +965,201 @@
     todayDateSelect.value = DATA.todayDate;
   }
 
+  // 조회일 + DATA.days(과거->최근) 전체 — daySnapshots에 실제로 데이터가 존재할 수 있는 날짜 범위.
+  // 주간/월간 모드에서 이 범위를 weekBucketKey/monthBucketKey로 묶어 선택지를 만든다.
+  var ALL_SNAPSHOT_DATES = DATA.days.concat([DATA.todayDate]);
+
+  var todayModeSelect = document.getElementById('todayModeSelect');
+  var todayWeekSelect = document.getElementById('todayWeekSelect');
+  var todayMonthSelect = document.getElementById('todayMonthSelect');
+  var todayPeriodOptionsBuilt = false;
+
+  function buildTodayPeriodOptions() {
+    if (todayPeriodOptionsBuilt) return;
+    todayPeriodOptionsBuilt = true;
+
+    var weekBuckets = computePeriodBuckets(weekBucketKey, ALL_SNAPSHOT_DATES).reverse();
+    weekBuckets.forEach(function(k) {
+      var opt = document.createElement('option');
+      opt.value = k;
+      opt.textContent = weekBucketLabel(k);
+      todayWeekSelect.appendChild(opt);
+    });
+    if (weekBuckets.length) todayWeekSelect.value = weekBuckets[0];
+
+    var monthBuckets = computePeriodBuckets(monthBucketKey, ALL_SNAPSHOT_DATES).reverse();
+    monthBuckets.forEach(function(k) {
+      var opt = document.createElement('option');
+      opt.value = k;
+      opt.textContent = monthBucketLabel(k);
+      todayMonthSelect.appendChild(opt);
+    });
+    if (monthBuckets.length) todayMonthSelect.value = monthBuckets[0];
+  }
+
+  function getSelectedPeriodDates() {
+    var mode = todayModeSelect.value;
+    if (mode === 'week') {
+      var wk = todayWeekSelect.value;
+      return ALL_SNAPSHOT_DATES.filter(function(d) { return weekBucketKey(d) === wk; });
+    }
+    if (mode === 'month') {
+      var mk = todayMonthSelect.value;
+      return ALL_SNAPSHOT_DATES.filter(function(d) { return monthBucketKey(d) === mk; });
+    }
+    return [todayDateSelect.value];
+  }
+
+  // 하루치 스냅샷(시간순, [최종마감]은 항상 마지막)을 0~23시 버킷으로 접는다. 스냅샷은 "그 시각까지의
+  // 당일 누적" 값이므로, 각 시간 버킷에는 그 시각 이전의 마지막 스냅샷 값을 그대로 이어 붙인다
+  // (해당 시각에 실제로 스냅샷이 없어도 누적값 자체는 유지되기 때문 — 0으로 두면 실제로는 줄어들지
+  // 않은 값이 빈 시간대에서 뚝 떨어지는 것처럼 보인다). 첫 스냅샷 이전 시간대는 아직 데이터가
+  // 없으므로 null로 남긴다. [최종마감](00:00)은 그 날의 최종 확정치라 자정(0시)과는 의미가 달라
+  // 시간 버킷에 섞지 않고 final로 따로 뗀다.
+  function dayHourlySeries(snaps) {
+    var hours = new Array(24).fill(null);
+    var chronological = snaps.filter(function(s) { return s.time !== '00:00'; });
+    var finalEntry = snaps.filter(function(s) { return s.time === '00:00'; })[0];
+    var final = finalEntry ? { cost: finalEntry.cost, db: finalEntry.db } : null;
+
+    var current = null;
+    var i = 0;
+    for (var h = 0; h < 24; h++) {
+      while (i < chronological.length && parseInt(chronological[i].time.split(':')[0], 10) <= h) {
+        current = { cost: chronological[i].cost, db: chronological[i].db };
+        i++;
+      }
+      hours[h] = current;
+    }
+
+    return { hours: hours, final: final };
+  }
+
+  var HOUR_BUCKET_LABELS = (function() {
+    var labels = [];
+    for (var h = 0; h < 24; h++) labels.push(h + '시');
+    labels.push('[최종마감]');
+    return labels;
+  })();
+
+  // 표용: 선택한 기간(주/월)에 속한 모든 날짜에 대해, 매체/보종 필터에 맞는 항목들을 0~23시
+  // 버킷(+최종마감)으로 접은 뒤 날짜끼리 그대로 합산한다(사용자 확인: 합산 방식).
+  function computeMultiDayHourlyTotals(dates) {
+    var matchedItems = getMatchedItems();
+    var hourTotals = HOUR_BUCKET_LABELS.map(function() { return { cost: 0, db: 0, has: false }; });
+    var finalIdx = HOUR_BUCKET_LABELS.length - 1;
+
+    dates.forEach(function(date) {
+      matchedItems.forEach(function(item) {
+        var byDate = DATA.daySnapshots[item.media + '||' + item.snapshotProduct] || {};
+        var snaps = byDate[date] || [];
+        if (snaps.length === 0) return;
+        var hs = dayHourlySeries(snaps);
+        hs.hours.forEach(function(v, h) {
+          if (!v) return;
+          hourTotals[h].cost += v.cost; hourTotals[h].db += v.db; hourTotals[h].has = true;
+        });
+        if (hs.final) {
+          hourTotals[finalIdx].cost += hs.final.cost; hourTotals[finalIdx].db += hs.final.db; hourTotals[finalIdx].has = true;
+        }
+      });
+    });
+
+    var targetCPA = matchedItems.length === 1 ? matchedItems[0].targetCPA : null;
+
+    return HOUR_BUCKET_LABELS.map(function(label, idx) {
+      var t = hourTotals[idx];
+      return {
+        time: label,
+        cost: t.cost,
+        db: t.db,
+        cpa: t.db > 0 ? Math.round(t.cost / t.db) : 0,
+        hasData: t.has,
+        targetCPA: targetCPA
+      };
+    });
+  }
+
+  // 그래프용: computeTodayGroupedSeries()와 같은 방식(필터 없으면 전체 하나로, 있으면 보종별
+  // 또는 매체별로 나눠서)으로, 선택한 기간에 속한 날짜들을 0~23시(+최종마감) 버킷으로 접어 합산한다.
+  function computeMultiDayHourlyGrouped(dates) {
+    var mediaSet = toSet(mediaMultiSelect.getSelected());
+    var productSet = toSet(productMultiSelect.getSelected());
+    var mediaFilterOn = Object.keys(mediaSet).length > 0;
+    var productFilterOn = Object.keys(productSet).length > 0;
+    var anyFilterOn = mediaFilterOn || productFilterOn;
+
+    var groups = DATA.mediaGroups.filter(function(g) {
+      return !mediaFilterOn || mediaSet[g.media];
+    });
+
+    var seriesMap = {}; // label -> HOUR_BUCKET_LABELS와 같은 길이의 {cost,db} 배열(마지막 칸=최종마감)
+    var seriesOrder = [];
+    var finalIdx = HOUR_BUCKET_LABELS.length - 1;
+
+    function seriesFor(label) {
+      if (!seriesMap[label]) {
+        seriesMap[label] = HOUR_BUCKET_LABELS.map(function() { return { cost: 0, db: 0 }; });
+        seriesOrder.push(label);
+      }
+      return seriesMap[label];
+    }
+
+    function addSnapshotKey(label, snapshotKey) {
+      var byDate = DATA.daySnapshots[snapshotKey] || {};
+      var values = seriesFor(label);
+      dates.forEach(function(date) {
+        var snaps = byDate[date] || [];
+        if (snaps.length === 0) return;
+        var hs = dayHourlySeries(snaps);
+        hs.hours.forEach(function(v, h) {
+          if (!v) return;
+          values[h].cost += v.cost; values[h].db += v.db;
+        });
+        if (hs.final) { values[finalIdx].cost += hs.final.cost; values[finalIdx].db += hs.final.db; }
+      });
+    }
+
+    groups.forEach(function(group) {
+      if (group.isCatalog && !productFilterOn) {
+        var catalogLabel = !anyFilterOn ? '전체' : group.media;
+        addSnapshotKey(catalogLabel, group.media + '||' + DATA.catalogTotalProduct);
+        return;
+      }
+
+      group.items.forEach(function(item) {
+        if (productFilterOn && !productSet[item.product]) return;
+        var label = !anyFilterOn ? '전체' : (productFilterOn ? item.product : group.media);
+        addSnapshotKey(label, group.media + '||' + item.product);
+      });
+    });
+
+    return {
+      days: HOUR_BUCKET_LABELS,
+      series: seriesOrder.map(function(label) {
+        return {
+          label: label,
+          values: seriesMap[label].map(function(v) {
+            return { cost: v.cost, db: v.db, cpa: v.db > 0 ? Math.round(v.cost / v.db) : 0 };
+          })
+        };
+      })
+    };
+  }
+
   function refreshTodayTab() {
     buildTodayDateOptions();
-    renderTodayTable(computeTodayTotalSeries());
-    drawTodayCharts(computeTodayGroupedSeries());
+    buildTodayPeriodOptions();
+
+    var mode = todayModeSelect.value;
+    if (mode === 'day') {
+      renderTodayTable(computeTodayTotalSeries());
+      drawTodayCharts(computeTodayGroupedSeries());
+    } else {
+      var dates = getSelectedPeriodDates();
+      renderTodayTable(computeMultiDayHourlyTotals(dates));
+      drawTodayCharts(computeMultiDayHourlyGrouped(dates));
+    }
   }
 
   // 요청한 자리수(2자리)만큼 앞에 0을 채운다.
@@ -1003,12 +1201,13 @@
     return parts[0] + '년 ' + Number(parts[1]) + '월';
   }
 
-  // "최근 일수" 필터와 무관하게 DATA.days(최대 TREND_DASHBOARD_MAX_DAYS일) 전체를 bucketKeyFn으로
-  // 묶어, 데이터에 실제 등장하는 순서(=시간순) 그대로 버킷 키 목록을 만든다.
-  function computePeriodBuckets(bucketKeyFn) {
+  // "최근 일수" 필터와 무관하게 dates(생략 시 DATA.days, 최대 TREND_DASHBOARD_MAX_DAYS일) 전체를
+  // bucketKeyFn으로 묶어, 데이터에 실제 등장하는 순서(=시간순) 그대로 버킷 키 목록을 만든다.
+  // 시간대별 현황 탭(주/월 모드)은 조회일까지 포함해야 해서 dates를 별도로 넘긴다.
+  function computePeriodBuckets(bucketKeyFn, dates) {
     var order = [];
     var seen = {};
-    DATA.days.forEach(function(d) {
+    (dates || DATA.days).forEach(function(d) {
       var k = bucketKeyFn(d);
       if (!seen[k]) { seen[k] = true; order.push(k); }
     });
@@ -1196,9 +1395,16 @@
     drawPeriodCharts(cfg, computePeriodGroupedSeries(cfg.bucketKey, buckets));
   }
 
-  todayDateSelect.addEventListener('change', function() {
-    renderTodayTable(computeTodayTotalSeries());
-    drawTodayCharts(computeTodayGroupedSeries());
+  todayDateSelect.addEventListener('change', refreshTodayTab);
+  todayWeekSelect.addEventListener('change', refreshTodayTab);
+  todayMonthSelect.addEventListener('change', refreshTodayTab);
+
+  todayModeSelect.addEventListener('change', function() {
+    var mode = todayModeSelect.value;
+    todayDateSelect.style.display = mode === 'day' ? '' : 'none';
+    todayWeekSelect.style.display = mode === 'week' ? '' : 'none';
+    todayMonthSelect.style.display = mode === 'month' ? '' : 'none';
+    refreshTodayTab();
   });
 
   var currentTab = 'trend';
