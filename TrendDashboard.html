@@ -187,6 +187,27 @@
   .diff-good { color: #1e8e3e; }
   .diff-bad { color: #c5221f; }
   .diff-na { color: #80868b; font-weight: 400; }
+
+  /* 시간대별 현황: 구간(스냅샷 간격) 증분 컬럼 및 효율 색상 */
+  .no-snapshot-row td { color: #9aa0a6; background: #f8f9fa; }
+  .interval-na { color: #9aa0a6; }
+  .hour-eff-good { background: #e6f4ea; color: #137333; font-weight: 700; }
+  .hour-eff-mid { background: #f1f3f4; color: #5f6368; }
+  .hour-eff-bad { background: #fce8e6; color: #a50e0e; font-weight: 700; }
+  .eff-legend {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    margin-left: 12px;
+    font-size: 11px;
+    color: #5f6368;
+  }
+  .eff-legend .swatch {
+    display: inline-block;
+    width: 10px;
+    height: 10px;
+    border-radius: 2px;
+  }
 </style>
 </head>
 <body>
@@ -334,6 +355,12 @@
     </div>
 
     <div class="table-wrap">
+      <div class="hint-text" style="margin-bottom:6px;">
+        "구간" 컬럼은 직전 스냅샷 대비 그 구간 동안 실제로 늘어난 값입니다. 구간단가 배경색이
+        <span class="eff-legend"><span class="swatch" style="background:#e6f4ea;"></span>초록=효율 좋음</span>
+        <span class="eff-legend"><span class="swatch" style="background:#fce8e6;"></span>빨강=효율 나쁨</span>
+        <span class="eff-legend"><span class="swatch" style="background:#f8f9fa;border:1px solid #dadce0;"></span>회색 행=그 시간대에 스냅샷 없음(직전 값 이월)</span>
+      </div>
       <table>
         <thead>
           <tr>
@@ -341,6 +368,9 @@
             <th>비용</th>
             <th>DB</th>
             <th>단가</th>
+            <th>구간비용</th>
+            <th>구간DB</th>
+            <th>구간단가</th>
           </tr>
         </thead>
         <tbody id="todayTableBody"></tbody>
@@ -849,6 +879,7 @@
         db: v.db,
         cpa: v.db > 0 ? Math.round(v.cost / v.db) : 0,
         hasData: v.cost > 0 || v.db > 0,
+        hasSnapshot: true, // 일별 모드는 실제 스냅샷 시각만 행으로 나오므로 항상 실데이터
         targetCPA: targetCPA
       };
     });
@@ -916,22 +947,88 @@
     };
   }
 
+  // 각 행을 시간순으로 훑으며 "직전 누적값 대비 이번 행에서 실제로 늘어난 만큼"(구간 증분)을
+  // 계산한다. 누적값(row.cost/db)은 스냅샷이 없는 시간대도 이월되어 항상 최신값을 갖고 있으므로,
+  // 스냅샷 공백 구간(hasSnapshot=false)을 건너뛰어도 다음 실제 스냅샷에서 그 공백 전체의 증분이
+  // 한 번에 정확히 잡힌다 — 공백 구간에 증분을 억지로 나눠 넣지 않는다.
+  function attachIntervalStats(rows) {
+    var prevCost = 0, prevDb = 0;
+    rows.forEach(function(row) {
+      if (row.hasSnapshot) {
+        row.intervalCost = row.cost - prevCost;
+        row.intervalDb = row.db - prevDb;
+        row.intervalCpa = row.intervalDb > 0 ? Math.round(row.intervalCost / row.intervalDb) : 0;
+        row.hasInterval = true;
+      } else {
+        row.intervalCost = null;
+        row.intervalDb = null;
+        row.intervalCpa = null;
+        row.hasInterval = false;
+      }
+      if (row.hasData) { prevCost = row.cost; prevDb = row.db; }
+    });
+    return rows;
+  }
+
+  // 구간단가(intervalCpa)에 효율 등급(초록=효율 좋음/회색=보통/빨강=효율 나쁨)을 매긴다.
+  // targetCPA(매체/보종을 정확히 하나만 골랐을 때만 존재)가 있으면 그 절대 기준을 쓰고,
+  // 없으면 같은 표 안에서의 상대 순위(하위 1/3=좋음, 상위 1/3=나쁨)로 매긴다.
+  function classifyIntervalEfficiency(rows) {
+    var valid = rows.filter(function(r) { return r.hasInterval && r.intervalDb > 0; });
+    if (valid.length === 0) return;
+
+    var targetCPA = rows[0] ? rows[0].targetCPA : null;
+    if (targetCPA) {
+      valid.forEach(function(r) {
+        r.intervalEffClass = r.intervalCpa <= targetCPA ? 'hour-eff-good'
+          : (r.intervalCpa <= targetCPA * 1.2 ? 'hour-eff-mid' : 'hour-eff-bad');
+      });
+      return;
+    }
+
+    if (valid.length < 3) {
+      valid.forEach(function(r) { r.intervalEffClass = 'hour-eff-mid'; });
+      return;
+    }
+
+    var sorted = valid.map(function(r) { return r.intervalCpa; }).sort(function(a, b) { return a - b; });
+    var lowCut = sorted[Math.floor((sorted.length - 1) / 3)];
+    var highCut = sorted[Math.ceil((sorted.length - 1) * 2 / 3)];
+    valid.forEach(function(r) {
+      r.intervalEffClass = r.intervalCpa <= lowCut ? 'hour-eff-good'
+        : (r.intervalCpa >= highCut ? 'hour-eff-bad' : 'hour-eff-mid');
+    });
+  }
+
+  function intervalCell(row) {
+    if (!row.hasInterval) return '<td class="interval-na">-</td><td class="interval-na">-</td><td class="interval-na">-</td>';
+    var cpaClass = row.intervalEffClass || '';
+    return '<td>' + row.intervalCost.toLocaleString() + '</td>' +
+      '<td>' + row.intervalDb.toLocaleString() + '</td>' +
+      '<td class="' + cpaClass + '">' + (row.intervalDb > 0 ? row.intervalCpa.toLocaleString() : '-') + '</td>';
+  }
+
   function renderTodayTable(rows) {
     var body = document.getElementById('todayTableBody');
     body.innerHTML = '';
 
     if (rows.length === 0 || rows.every(function(r) { return !r.hasData; })) {
-      body.innerHTML = '<tr><td colspan="4" class="empty">해당 기간의 시간대별 데이터가 없습니다.</td></tr>';
+      body.innerHTML = '<tr><td colspan="7" class="empty">해당 기간의 시간대별 데이터가 없습니다.</td></tr>';
       return;
     }
 
+    attachIntervalStats(rows);
+    classifyIntervalEfficiency(rows);
+
     rows.forEach(function(row) {
       var tr = document.createElement('tr');
+      if (!row.hasSnapshot) tr.className = 'no-snapshot-row';
       tr.innerHTML =
         '<td>' + row.time + '</td>' +
         '<td>' + (row.hasData ? row.cost.toLocaleString() : '-') + '</td>' +
         '<td>' + (row.hasData ? row.db.toLocaleString() : '-') + '</td>' +
-        '<td>' + (row.hasData ? row.cpa.toLocaleString() : '-') + statusBadge(row) + '</td>';
+        '<td>' + (row.hasData ? row.cpa.toLocaleString() : '-') + statusBadge(row) + '</td>' +
+        intervalCell(row);
       body.appendChild(tr);
     });
   }
@@ -1016,8 +1113,12 @@
   // 않은 값이 빈 시간대에서 뚝 떨어지는 것처럼 보인다). 첫 스냅샷 이전 시간대는 아직 데이터가
   // 없으므로 null로 남긴다. [최종마감](00:00)은 그 날의 최종 확정치라 자정(0시)과는 의미가 달라
   // 시간 버킷에 섞지 않고 final로 따로 뗀다.
+  // hours[h]: 그 시(hour) 버킷의 누적값(이월 포함, 위 설명대로). arrivals[h]: 그 시(hour)에
+  // "실제로" 새 스냅샷이 찍혔는지(이월이 아니라 진짜 데이터가 들어왔는지) 여부 — 구간 증분을
+  // 계산할 때 스냅샷 없는 시간대(이월된 값뿐인 시간대)를 구분해내는 데 쓴다.
   function dayHourlySeries(snaps) {
     var hours = new Array(24).fill(null);
+    var arrivals = new Array(24).fill(false);
     var chronological = snaps.filter(function(s) { return s.time !== '00:00'; });
     var finalEntry = snaps.filter(function(s) { return s.time === '00:00'; })[0];
     var final = finalEntry ? { cost: finalEntry.cost, db: finalEntry.db } : null;
@@ -1027,12 +1128,13 @@
     for (var h = 0; h < 24; h++) {
       while (i < chronological.length && parseInt(chronological[i].time.split(':')[0], 10) <= h) {
         current = { cost: chronological[i].cost, db: chronological[i].db };
+        arrivals[h] = true;
         i++;
       }
       hours[h] = current;
     }
 
-    return { hours: hours, final: final };
+    return { hours: hours, final: final, arrivals: arrivals };
   }
 
   var HOUR_BUCKET_LABELS = (function() {
@@ -1046,7 +1148,7 @@
   // 버킷(+최종마감)으로 접은 뒤 날짜끼리 그대로 합산한다(사용자 확인: 합산 방식).
   function computeMultiDayHourlyTotals(dates) {
     var matchedItems = getMatchedItems();
-    var hourTotals = HOUR_BUCKET_LABELS.map(function() { return { cost: 0, db: 0, has: false }; });
+    var hourTotals = HOUR_BUCKET_LABELS.map(function() { return { cost: 0, db: 0, has: false, hasSnapshot: false }; });
     var finalIdx = HOUR_BUCKET_LABELS.length - 1;
 
     dates.forEach(function(date) {
@@ -1058,9 +1160,11 @@
         hs.hours.forEach(function(v, h) {
           if (!v) return;
           hourTotals[h].cost += v.cost; hourTotals[h].db += v.db; hourTotals[h].has = true;
+          if (hs.arrivals[h]) hourTotals[h].hasSnapshot = true;
         });
         if (hs.final) {
-          hourTotals[finalIdx].cost += hs.final.cost; hourTotals[finalIdx].db += hs.final.db; hourTotals[finalIdx].has = true;
+          hourTotals[finalIdx].cost += hs.final.cost; hourTotals[finalIdx].db += hs.final.db;
+          hourTotals[finalIdx].has = true; hourTotals[finalIdx].hasSnapshot = true;
         }
       });
     });
@@ -1075,6 +1179,7 @@
         db: t.db,
         cpa: t.db > 0 ? Math.round(t.cost / t.db) : 0,
         hasData: t.has,
+        hasSnapshot: t.hasSnapshot,
         targetCPA: targetCPA
       };
     });
